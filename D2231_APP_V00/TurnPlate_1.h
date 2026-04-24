@@ -14,7 +14,6 @@ enum
 {
 	TurnPlate_1_Mode_Motor_Add = 1, //转盘1电机
 	Rotate_TeatTube_Motor_Add = 2, //旋转试管电机
-
 };
 
 
