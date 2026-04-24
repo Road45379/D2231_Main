@@ -1,7 +1,0 @@
-#Wed Dec 24 17:06:22 CST 2025
-spelling_locale_initialized=true
-useAnnotationsPrefPage=true
-eclipse.preferences.version=1
-wizard.preferred.toolchains=com.qnx.qcc.toolChain com.qnx.qcc.toolChain.exe.coverage com.qnx.qcc.toolChain.sharedLib.coverage com.qnx.qcc.toolChain.staticLib.coverage
-sourceHoverBackgroundColor=255,255,225
-useQuickDiffPrefPage=true
