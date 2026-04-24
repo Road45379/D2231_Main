@@ -1,0 +1,59 @@
+/*
+ * Track_Mode.c
+ *
+ * 轨道模块 05
+ *
+ *履带模块
+ *  Created on: 2025-12-23
+ *      Author: ThinkPad
+ */
+#include "Track_Mode.h"
+#define MOTOR_STARTORSTOP   0x11   //上位机指令-轨道电机启停
+
+
+
+
+void TarskControlModule_MotorStartOrStop(NetCmd *cmd)
+{
+	int start_or_stop = 0;
+	start_or_stop = AsciiToHex(cmd->pvar[0]);//0 停止 ,1 启动
+	static int i = 0;
+	if(_State_Moudle.State_TarskControlModule1 == State_NoBusy)
+	{
+		_State_Moudle.State_TarskControlModule1 = State_Busy;
+		if(0 != UartSend(fd_RS485_index_3, Tarck_Mode_Motor_Add_1, MOTOR_COM_MOMENT_MODE, &cmd->pvar[0]))
+		{
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, 0001);
+			_State_Moudle.State_TarskControlModule1 = State_NoBusy;
+			break;
+		}
+		i++;
+	}else
+	{
+		if(i < Tarck_Mode_Motor_Add_48)
+		{
+			if(0 != UartSend(fd_RS485_index_3, Tarck_Mode_Motor_Add_1 + i, MOTOR_COM_MOMENT_MODE, &cmd->pvar[0]))
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, 0001);
+				_State_Moudle.State_TarskControlModule1 = State_NoBusy;
+				break;
+			}
+		}
+		i++;
+	}
+	Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+	_State_Moudle.State_TarskControlModule1 = State_NoBusy;
+}
+
+
+
+void TarskControlModule(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case MOTOR_STARTORSTOP://轨道电机启停
+		TarskControlModule_MotorStartOrStop(cmd);
+		break;
+
+
+	}
+}

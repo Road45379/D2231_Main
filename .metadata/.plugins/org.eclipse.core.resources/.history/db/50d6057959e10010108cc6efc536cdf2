@@ -1,0 +1,23 @@
+/*
+ * PublicCommand.c
+ *公共指令
+ *  Created on: 2025-12-23
+ *      Author: ThinkPad
+ */
+/*
+ * 主控指令集
+ */
+#include "Gloable_Schema.h"
+
+NetCmd *ParsingStringToNetCmd_NetCmd_Public = NULL;//主控解析指令
+
+void PublicCommand(char *buff)
+{
+	static int i = 0;
+	if(i == 0)//第一次调用该函数的时候初始化一下结构体
+	{
+		ParsingStringToNetCmd_NetCmd_Public = (NetCmd *) malloc(sizeof(NetCmd));//主控解析指令
+		i = 1;
+	}
+	ParsingStringToNetCmd(buff, ParsingStringToNetCmd_NetCmd_Public);
+}

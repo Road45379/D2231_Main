@@ -1,0 +1,214 @@
+#include "main.h"
+#include "GPIO_Driver.h"
+#define SERVER_PORT 1000
+#define LINSTNNUM 5
+
+/*
+ * 加载位置信息
+ */
+void LoadPointConfigure(char *filename)
+{
+	FILE *fd;
+	char *a="[POINT]\n02=\n";
+	char *ManipulatorModePoint;
+	char *TurnPlate_1_ModePoint;
+	char *TurnPlate_2_ModePoint;
+	char *TurnPlate_3_ModePoint;
+	unsigned int pvarlength02 = 0;
+	unsigned int pvarlength03 = 0;
+	unsigned int pvarlength06 = 0;
+	unsigned int pvarlength07 = 0;
+	char point02[1024] = "0";
+	char point03[1024] = "0";
+	char point06[1024] = "0";
+	char point07[1024] = "0";
+
+	if(NULL == (fd = fopen(filename, "r")))
+	{
+		fd = fopen(filename, "w");
+		fputs(a,fd);
+		fclose(fd);
+	}else{
+		fclose(fd);
+		ManipulatorModePoint = GetIniKeyString("POINT", "02", filename);
+		if(ManipulatorModePoint != NULL)
+		{
+			pvarlength02 = (PackWord(ManipulatorModePoint) * 2) + 4;
+			int n = 0;
+			int i = 0;
+			for(i = 4; i < pvarlength02;)
+			{
+				point02[n] = PackByte(ManipulatorModePoint + i);
+				i = i+2;
+				n++;
+			}
+			memcpy(My_ClawsPos, point02, sizeof(ClawsPos));
+		}
+		TurnPlate_1_ModePoint = GetIniKeyString("POINT", "04", filename);
+		if(TurnPlate_1_ModePoint != NULL)
+		{
+			pvarlength03 = (PackWord(TurnPlate_1_ModePoint) * 2) + 4;
+			int n = 0;
+			int i = 0;
+			for(i = 4; i < pvarlength03;)
+			{
+				point03[n] = PackByte(TurnPlate_1_ModePoint + i);
+				i = i+2;
+				n++;
+			}
+			memcpy(turntableSamplePos, point03, sizeof(SampleTurntablePos));
+		}
+		TurnPlate_2_ModePoint = GetIniKeyString("POINT", "06", filename);
+		if(TurnPlate_2_ModePoint != NULL)
+		{
+			pvarlength06 = (PackWord(TurnPlate_2_ModePoint) * 2) + 4;
+			int n = 0;
+			int i = 0;
+			for(i = 4; i < pvarlength06;)
+			{
+				point06[n] = PackByte(TurnPlate_2_ModePoint + i);
+				i = i+2;
+				n++;
+			}
+			memcpy(turntable2Pos, point06, sizeof(TransportTurntablePos));
+		}
+		TurnPlate_3_ModePoint = GetIniKeyString("POINT", "07", filename);
+		if(TurnPlate_3_ModePoint != NULL)
+		{
+			pvarlength06 = (PackWord(TurnPlate_3_ModePoint) * 2) + 4;
+			int n = 0;
+			int i = 0;
+			for(i = 4; i < pvarlength06;)
+			{
+				point07[n] = PackByte(TurnPlate_3_ModePoint + i);
+				i = i+2;
+				n++;
+			}
+			memcpy(railTurntablePos, point07, sizeof(TransportTurntablePos));
+		}
+	}
+}
+
+int main(int argc, char *argv[]) {
+	Uart_Open();
+	IOInit();
+	my_memset((int*)&_State_Moudle.State_TarskControlModule1, State_NoBusy, sizeof(State_Moudle)/sizeof(int));
+
+	My_ClawsPos = (ClawsPos *) malloc(sizeof(ClawsPos)); //02
+	turntableSamplePos = (SampleTurntablePos *) malloc(sizeof(SampleTurntablePos));//03
+	turntable2Pos = (TransportTurntablePos *) malloc(sizeof(TransportTurntablePos));//06
+	railTurntablePos = (TransportTurntablePos *) malloc(sizeof(TransportTurntablePos));//07
+
+	cmd_AutoSend_SampleShelf_State = (NetCmd *) malloc(sizeof(NetCmd));//电磁铁板状态有变化自动上返
+	cmd_AutoSend_Sensor_State = (NetCmd *) malloc(sizeof(NetCmd));//传感器1触发自动上返
+
+	LoadPointConfigure(Filename_config);
+
+
+	memset(cmd_AutoSend_SampleShelf_State->netcmdhead, 0, sizeof(cmd_AutoSend_SampleShelf_State->netcmdhead));
+	strcpy(cmd_AutoSend_SampleShelf_State->netcmdhead, ">FFFFFFFE0302");
+
+	memset(cmd_AutoSend_SampleShelf_State->netcmdhead, 0, sizeof(cmd_AutoSend_SampleShelf_State->netcmdhead));
+	strcpy(cmd_AutoSend_SampleShelf_State->netcmdhead, ">FFFFFFFD0402");
+
+	int Server_socketID = 0;
+	int Server_addrLength = 0;
+	int Server_ret = 0;
+	struct sockaddr_in Server_addr;
+	//打开socket
+	Server_socketID = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (Server_socketID < 0)
+	{
+		printf("Server socket error!\r\n");
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "Server socket error!\r\n");
+#endif
+		return -1;
+	}
+	//绑定自己的IP、 PORT
+	Server_addrLength = sizeof(Server_addr);
+	bzero(&Server_addr, Server_addrLength);//初始化服务器地址
+	Server_addr.sin_family = AF_INET;
+	Server_addr.sin_port = htons(SERVER_PORT);
+	Server_addr.sin_addr.s_addr = INADDR_ANY;
+	Server_ret = bind(Server_socketID, (struct sockaddr *) &Server_addr,
+			(socklen_t) Server_addrLength);
+	if (Server_ret < 0)
+	{
+		printf("server bind error!\r\n");
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "server bind error!\r\n");
+#endif
+		close(Server_socketID);
+		return -1;
+	}
+	//监听
+	Server_ret = listen(Server_socketID, LINSTNNUM);
+	if (Server_ret < 0)
+	{
+		printf("server listen error!\r\n");
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "server listen error!\r\n");
+#endif
+		close(Server_socketID);
+		return -1;
+	}
+	printf("server listen success\r\n");
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "server listen success\r\n");
+#endif
+
+	pthread_create(NULL, NULL, (void *) &RecvPC_thread, NULL);
+	pthread_create(NULL, NULL, (void *) &DeviceTask_Thread, NULL);
+	pthread_create(NULL, NULL, (void *) &Recv_Uart_thread, NULL);
+	pthread_create(NULL, NULL, (void *) &Eth_Send_pyhread, NULL);
+
+	while(1)
+	{
+		memset(&Server_addr, 0, Server_addrLength);
+		int Socket_ID_tmp = accept(Server_socketID,
+				(struct sockaddr *) &Server_addr,
+				(socklen_t *) &Server_addrLength);
+
+		printf("Server_socketID = %d\n", Server_socketID);
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "Server_socketID = %d\n", Server_socketID);
+#endif
+		printf("Socket_ID = %d\n", Get_Socket_ID());
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "Socket_ID = %d\n", Socket_ID);
+#endif
+		if (Socket_ID_tmp < 0)
+		{
+			printf("PORT: 1000 Environmental control server accept error!\r\n");
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "PORT: 1000 Environmental control server accept error!\r\n");
+#endif
+			close(Socket_ID_tmp);
+			continue;
+		}
+		else
+		{
+			if(Get_Socket_ID() > 0)
+			{
+				close(Get_Socket_ID());
+				Set_Socket_ID(-1);
+			}
+			Set_Socket_ID(Socket_ID_tmp);
+			printf(
+					"PORT : 1000 Environmental control Client accept succeed; ip = %s : %d\n",
+					inet_ntoa(Server_addr.sin_addr),
+					ntohs(Server_addr.sin_port));
+#ifdef SaveLog
+		indexs += sprintf(&LogBuf[indexs], "PORT : 1000 Environmental control Client accept succeed; ip = %s : %d\n",
+				inet_ntoa(Server_addr.sin_addr),
+				ntohs(Server_addr.sin_port));
+#endif
+		}
+		usleep(100000);
+	}
+	close(Get_Socket_ID());
+
+	return EXIT_SUCCESS;
+}

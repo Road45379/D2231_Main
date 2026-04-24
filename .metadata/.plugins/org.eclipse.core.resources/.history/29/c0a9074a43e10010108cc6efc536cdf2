@@ -1,0 +1,134 @@
+/*
+ * ManipulatorModule.c
+ *
+ *  Created on: 2025-12-24
+ *      Author: ThinkPad
+ */
+#include "ManipulatorModule.h"
+
+
+#define SET_MAINIPULATOR_PLACE     0x11//设置机械手位置
+#define READ_MAINIPULATOR_PLACE    0x12//读机械手位置
+#define MOTOR_FREE				   0x04//电机释放
+
+
+
+void ManipulatorModule_Set_Place(NetCmd *cmd)
+{
+
+	if(_State_Moudle.State_Manipulator == State_NoBusy)
+	{
+		_State_Moudle.State_Manipulator = State_Busy;
+		//读爪子状态
+		if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_READSTATE, &cmd->pvar[0]) != 0)
+		{
+			//有通讯故障，报错
+		}else
+		{
+			switch(PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_hand].point))
+			{
+			case 0x01://夹到
+			case 0x03://没有夹持到且大于设定极限03,夹持到且丢了也是03
+				//松开后抬起Z轴
+				break;
+			case 0x04://张开或者正在夹,正在运行状态04
+				//等待完成后重新重新读爪子状态
+				break;
+			case 0x05://张开完成05
+				//抬起Z轴
+				break;
+			}
+
+		}
+
+	}
+}
+
+/*
+ * 读电机状态（其中会判断电机是否在运行中，如果在运行中才会去读状态）
+ * 在Read_Motor_State()中调用
+ */
+void ManipulatorModule_Read_Motor_State()
+{
+
+}
+
+void ManipulatorModule_LockMotor(NetCmd *cmd)//机械手_锁定/释放电机
+{
+	if(_State_Moudle.State_Manipulator == State_NoBusy)
+	{
+		_State_Moudle.State_Manipulator = State_Busy;
+		int err = 0;
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 0) == 1)//X轴
+		{
+			err = UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_x, MOTOR_COM_FREE, &cmd->pvar[0]);
+		}
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 1) == 1)//y轴
+		{
+			err += UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_y, MOTOR_COM_FREE, &cmd->pvar[0]) << 1;
+		}
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 2) == 1)//z轴
+		{
+			err += UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_FREE, &cmd->pvar[0]) << 2;
+		}
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 3) == 1)//z轴
+		{
+			err += UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, MOTOR_COM_FREE, &cmd->pvar[0]) << 3;
+		}
+		if(0 != err)
+		{
+			//有通讯故障，报错
+		}else
+		{
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+		}
+		_State_Moudle.State_Manipulator = State_NoBusy;
+	}
+}
+
+void ManipulatorModule_ReadSteps(NetCmd *cmd)//机械手_读取电机位置
+{
+	char xPoint[16] = "";
+	char yPoint[16] = "";
+	char zPoint[16] = "";
+	char handPoint[16] = "";
+	if(_State_Moudle.State_Manipulator == State_NoBusy)
+	{
+		_State_Moudle.State_Manipulator = State_Busy;
+		int err = 0;
+		err = UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_x, MOTOR_COM_READSTEPS, &cmd->pvar[0]);
+		err += UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_y, MOTOR_COM_READSTEPS, &cmd->pvar[0]) << 1;
+		err += UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_READSTEPS, &cmd->pvar[0]) << 2;
+		err += UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_READSTEPS, &cmd->pvar[0]) << 3;
+		if(0 != err)
+		{
+			//有通讯故障，报错
+		}else
+		{
+			strncat(xPoint, _ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_x].point, 8);
+			strncat(yPoint, _ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_y].point, 8);
+			strncat(zPoint, _ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_z].point, 8);
+			strncat(handPoint, _ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_hand].point, 8);
+			Eth_Send_Queue(cmd, 0, 0xFF, 5, 0000, xPoint, yPoint, zPoint, handPoint);
+		}
+		_State_Moudle.State_Manipulator = State_NoBusy;
+	}
+}
+
+
+void ManipulatorModule(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case SET_MAINIPULATOR_PLACE://设置绝对坐标
+		ManipulatorModule_Set_Place(cmd);
+		break;
+	case MOTOR_FREE://机械手_锁定/释放电机
+		ManipulatorModule_LockMotor(cmd);
+		break;
+	case READ_MAINIPULATOR_PLACE://读机械手位置
+		ManipulatorModule_ReadSteps(cmd);
+		break;
+
+
+	}
+}

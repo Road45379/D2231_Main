@@ -1,0 +1,16 @@
+/*
+ * ETH_Recv.h
+ *
+ *  Created on: 2025-12-23
+ *      Author: ThinkPad
+ */
+
+#ifndef ETH_RECV_H_
+#define ETH_RECV_H_
+#include "Gloable_Schema.h"
+void Set_Socket_ID(int val);
+int Get_Socket_ID();
+void *RecvPC_thread();
+int FinishRecv(NetCmd *cmd, int action_index, int module_index, int num, ...);
+
+#endif /* ETH_RECV_H_ */

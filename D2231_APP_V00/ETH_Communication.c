@@ -1,0 +1,186 @@
+/*
+ * ETH_Recv.c
+ *
+ *  Created on: 2025-12-23
+ *      Author: ThinkPad
+ */
+#include "ETH_Communication.h"
+#include "Gloable_Schema.h"
+#include "PublicCommand.h"
+#include "TurnPlate_2_OP.h"
+#include "Set_Time.h"
+
+volatile int Socket_ID;
+
+void Set_Socket_ID(int val)
+{
+	Socket_ID = val;
+}
+
+int Get_Socket_ID()
+{
+	return Socket_ID;
+}
+
+/*
+ * 网口发送函数,计算CRC，添加“\r\n”，然后发送
+ * 参数：要发送的字符串和长度，根据长度截取字符串然后计算CRC
+ * 返回：发送的长度
+ */
+int TcpSend(char *buf, int len)
+{
+	char send_crcbuf[8] = "";
+	char send_buf[4096] = "";
+	int ret = 0;
+	memset(send_buf, 0, sizeof(send_buf));
+	if(len > strlen(buf)/sizeof(*buf))
+	{
+		len = strlen(buf)/sizeof(*buf);
+	}
+	strncat(send_buf, buf, len);
+	memset(send_crcbuf, 0, sizeof(send_crcbuf));
+	crc_check((uint8_t *)send_buf, send_crcbuf);
+	strcat(send_buf, send_crcbuf);
+	strcat(send_buf, "\r\n");
+	if(Socket_ID > 0)
+	{
+		ret = send(Socket_ID, send_buf, strlen(send_buf), MSG_NOSIGNAL);
+		if(ret < 0)
+		{
+			close(Socket_ID);
+			Socket_ID = -1;
+		}
+	}
+	return ret;
+}
+
+
+static int recvPC_n = 0;
+static char recvPC_cmdtmp[4096];
+/*
+ * 接收上位机指令,入队
+ */
+void *RecvPC_thread()
+{
+	char cmd_buf[4096] = "";
+	int ret;
+	int i;
+	int ncmd_buf = sizeof(cmd_buf);
+	char Command_viraddr[3] = "";
+	int cmd_Region = 0;
+	while (1)
+	{
+		//myrecv_PC(cmd_buf, sizeof(cmd_buf));//接收PC端的命令并放入命令队列
+		ret = 0;
+		i = 0;
+		memset(cmd_buf, 0, ncmd_buf);
+		usleep(1);
+		ret = recv(Socket_ID, cmd_buf, ncmd_buf, MSG_DONTWAIT);
+		if(ret > 0)
+		{
+			for(i = 0; i < ret; i++)
+			{
+				char t = cmd_buf[i];
+				if(t == '>')
+				{
+					recvPC_n = 0;
+				}
+				recvPC_cmdtmp[recvPC_n++] = t;
+				if(t == 0x0A)
+				{
+					if(recvPC_cmdtmp[0] != '>')
+					{
+						continue;
+					}
+					if(CompareCRC(recvPC_cmdtmp) == 0)
+					{
+						TcpSend(recvPC_cmdtmp, 13);
+						printf("Net Recv : %s",recvPC_cmdtmp);
+						memset(&Command_viraddr, 0, sizeof(Command_viraddr));
+						memcpy(Command_viraddr, recvPC_cmdtmp + 9, 2);
+						cmd_Region = htoi(Command_viraddr);
+						switch(cmd_Region){
+						case PublicCommandAdd://公共指令
+							PublicCommand(recvPC_cmdtmp);
+							break;
+						case TarskControlCommandAdd://轨道指令
+							enQueue(PQueue_TarskControlModule1, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case ManipulatorModuleCommandAdd://机械手指令
+							enQueue(PQueue_ManipulatorModule1, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case TurnPlate_1_ModuleCommandAdd://转盘1指令
+							if(PackByte(recvPC_cmdtmp + 11) == 0x14 )
+							{
+								putInWriteData(&list, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							}
+							enQueue(PQueue_TurnPlate_1_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case TurnPlate_2_ModuleCommandAdd://转盘2指令
+							enQueue(PQueue_TurnPlate_2_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case TurnPlate_3_ModuleCommandAdd://转盘3指令
+							enQueue(PQueue_TurnPlate_3_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case SampleShelf_ModuleCommandAdd://电磁铁板指令
+							enQueue(PQueue_SampleShelf_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case ControlBoard_1_ModuleCommandAdd://分控1指令
+							enQueue(PQueue_ControlBoard_1_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case ControlBoard_2_ModuleCommandAdd://分控1指令
+							enQueue(PQueue_ControlBoard_2_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case ControlBoard_3_ModuleCommandAdd://分控1指令
+							enQueue(PQueue_ControlBoard_3_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						case ControlBoard_4_ModuleCommandAdd://分控1指令
+							enQueue(PQueue_ControlBoard_4_Module, recvPC_cmdtmp,strlen(recvPC_cmdtmp));
+							break;
+						}
+					}
+
+					recvPC_n = 0;
+					memset(recvPC_cmdtmp, 0, sizeof(recvPC_cmdtmp));
+				}
+				if(recvPC_n == sizeof(recvPC_cmdtmp))
+				{
+					recvPC_n = 0;
+					memset(recvPC_cmdtmp, 0, sizeof(recvPC_cmdtmp));
+				}
+			}
+		}
+	}
+}
+
+/*
+ * 网口发送线程
+ */
+void* Eth_Send_pyhread()
+{
+	char send_buf[4096] = "";
+	int ret = 0;
+	int len = -1;
+	while(1)
+	{
+		memset(send_buf, 0, 4096);
+		ret = deQueue(PQueue_ETH_Send, send_buf);
+		if(ret == 2)//出队成功
+		{
+			if(Socket_ID > 0)
+			{
+				char timebuf[32] = {0};
+				ReadSysTime(timebuf,"%Y/%m/%d %H:%M:%S");
+				printf("%s send_buf = %s",timebuf,send_buf);
+				len = send(Socket_ID, send_buf, strlen(send_buf), MSG_NOSIGNAL);
+				if(len < 0)
+				{
+					close(Socket_ID);
+					Socket_ID = -1;
+					printf("SEND_ERROR\r\n");
+				}
+			}
+		}
+		usleep(1);
+	}
+}

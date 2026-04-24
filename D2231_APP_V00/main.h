@@ -1,0 +1,16 @@
+/*
+ * main.h
+ *
+ *  Created on: 2025-12-22
+ *      Author: Administrator
+ */
+
+#ifndef MAIN_H_
+#define MAIN_H_
+
+#include "Gloable_Schema.h"
+#include "ETH_Communication.h"
+#include "DeviceTask.h"
+#include "TurnPlate_2_OP.h"
+
+#endif /* MAIN_H_ */

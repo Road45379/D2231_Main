@@ -1,0 +1,201 @@
+/*
+ * TurnPlate_1.c
+ *
+ *转盘1（靠近机械手的转盘）
+ *  Created on: 2025-12-29
+ *      Author: ThinkPad
+ */
+
+#include "TurnPlate_1.h"
+
+
+#define MOTOR_RESET				   0x03//电机复位
+#define MOTOR_FREE				   0x04//电机释放
+#define SET_TurnPlate_1_PLACE      0x16//设置转盘位置
+#define SAVE_POINT				   0x07//读写定位参数
+
+
+void TurnPlate_1_Module_ResetMotor(NetCmd *cmd)//转盘1_复位电机
+{
+	if(_State_Moudle.State_TurnPlate_1_Module == State_NoBusy)
+	{
+		_State_Moudle.State_TurnPlate_1_Module = State_Busy;
+
+		//转盘复位
+		UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_RESET, 0);
+		TurnPlate_1_Module_Num = STEP_1;
+	}else
+	{
+		if(TurnPlate_1_Module_Num == STEP_1)
+		{
+			//等转盘复位完成
+			UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_READRESETSTATE, 0);
+			if(PackByte(_ControlBoard[fd_RS485_index_1].Motor[TurnPlate_1_Mode_Motor_Add].point) == 0x01)//转盘复位完成
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+				_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+			}
+		}
+	}
+}
+
+/*
+ * 转盘移动
+ * _steps 坐标
+ *
+ * return :
+ * 1 : 通讯故障
+ * 0 ：正常结束
+ * 5 ： 运行中
+ *
+ */
+int TurnPlate_1_Move(char * _steps)
+{
+	if(_State_Moudle.State_TurnPlate_1_Module == State_NoBusy)
+	{
+		_State_Moudle.State_TurnPlate_1_Module = State_Busy;
+		char _steps_buf[9] = {0};
+		memcpy(_steps_buf, _steps, 8);
+		if(UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_SETSTEPS,1, _steps_buf) != 0)
+		{
+
+			return 1;
+		}
+		TurnPlate_1_Module_Num = STEP_1;
+	}else{
+		if(TurnPlate_1_Module_Num == STEP_1)//等转盘移动完成
+		{
+			if(UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_READ_IN_PLACE, 0) != 0)
+			{
+				_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+				return 1;
+			}
+			if(PackByte(_ControlBoard[fd_RS485_index_1].Motor[TurnPlate_1_Mode_Motor_Add].point) != 0x00)//0为移动中
+			{
+				//完成
+				_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+				return 0;
+			}else
+			{
+				return 5;
+			}
+		}
+	}
+}
+
+/*
+ * 读转盘位置
+ *
+ * return :
+ * 1 : 通讯故障
+ * 0 ：正常结束
+ *5:组件忙
+ */
+int TurnPlate_1_Read_Place()
+{
+	if(_State_Moudle.State_TurnPlate_1_Module == State_NoBusy)
+	{
+		_State_Moudle.State_TurnPlate_1_Module = State_Busy;
+		if(UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_READSTEPS, 0) != 0)
+		{
+			_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+			return 1;
+		}else
+		{
+			_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+			return 0;
+		}
+	}else
+	{
+		return 5;
+	}
+}
+
+void TurnPlate_1_Module_Set_Place(NetCmd *cmd)
+{
+	if(AsciiToHex(cmd->pvar[0]) == 0x01)//设置位置
+	{
+		int ret = TurnPlate_1_Move(&cmd->pvar[1]);
+		switch(ret)
+		{
+		case 0:
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+			break;
+		case 1:
+			break;
+		case 5:
+			break;
+		}
+	}else if(AsciiToHex(cmd->pvar[0]) == 0x00)//读位置
+	{
+		int ret = TurnPlate_1_Read_Place();
+		if(ret == 1)
+		{
+			//通讯失败
+		}else
+		{
+			char _Point[16] = "";
+			strncat(_Point, _ControlBoard[fd_RS485_index_1].Motor[TurnPlate_1_Mode_Motor_Add].point, 8);
+			Eth_Send_Queue(cmd, 0, 0xFF, 2, 0000, _Point);
+		}
+	}
+}
+
+void TurnPlate_1_Module_LockMotor(NetCmd *cmd)//转盘1_锁定/释放电机
+{
+	if(_State_Moudle.State_TurnPlate_1_Module == State_NoBusy)
+	{
+		_State_Moudle.State_TurnPlate_1_Module = State_Busy;
+		char Lock = 0;
+		Lock = cmd->pvar[0];
+		if(UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_FREE, 1, &Lock) != 0)
+		{
+			_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+			//报错
+		}else
+		{
+			_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+		}
+	}
+}
+
+
+void TurnPlate_1_Module(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case MOTOR_RESET://复位
+		TurnPlate_1_Module_ResetMotor(cmd);
+		break;
+	case SET_TurnPlate_1_PLACE://设置转盘位置
+		TurnPlate_1_Module_Set_Place(cmd);
+		break;
+	case MOTOR_FREE://机械手_锁定/释放电机
+		TurnPlate_1_Module_LockMotor(cmd);
+		break;
+	case SAVE_POINT://读写定位参数
+		if(AsciiToHex(cmd->pvar[0]) == 1)//写参数
+		{
+			//定位参数
+			unsigned int pvarlength = PackWord((char*) &cmd->pvar[2]) * 2;
+			char point[4096] = "0";
+			int n = 0;
+			int i = 0;
+			for(i = 0; i < pvarlength;)
+			{
+				point[n] = PackByte((char*) &cmd->pvar[6 + i]);
+				i = i+2;
+				n++;
+			}
+			memcpy(turntableSamplePos, point, sizeof(SampleTurntablePos));
+			SavePointConfigure(Filename_config, cmd);
+			char send_buf0x07[16] = "";
+			strncat(send_buf0x07, (char*)&cmd->pvar[2], 4);
+			Eth_Send_Queue(cmd, 0, 0xFF, 2, 0x0000, send_buf0x07);
+		}
+		break;
+
+	}
+}
+
+

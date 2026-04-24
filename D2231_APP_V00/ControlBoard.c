@@ -1,0 +1,671 @@
+/*
+ * ControlBoard.c
+ *和分控通信，最多四个，地址分别为 0x08,0x09,0x0A,0x0B
+ *  Created on: 2026-1-8
+ *      Author: ThinkPad
+ */
+
+#include "Set_Time.h"
+#include "SampleShelf.h"
+#include "ControlBoard.h"
+
+#define SET_MOTOR_PLACE      		0x11//分控设置电机位置
+#define BRANCH_FREE	 		 		0x12//分支释放
+#define BRANCH_ENABLE	 	 		0x13//分支启用
+#define MOTOR_FREE			 		0x04//电机释放
+#define MOTOR_RESET					0x03//电机复位
+#define SF9200_CAN_TEST_PROJECT	 	0x14//92可测试项目配置
+#define READ_WRITE_MOTOR_PARA	   	0x08//读写电机参数
+
+#define GET_CONTROLBOARD_STATE_TIMEOUT   1000//1S
+
+
+
+/*
+ * 心跳查询分控状态，间隔1S
+ */
+void Get_ControlBoard_State()
+{
+	static struct timeval Time_start;
+	static struct timeval Time_now;
+	static int i = 0;
+	if(i == 0)//开始计时
+	{
+		gettimeofday(&Time_start, NULL);
+		i = 1;
+	}else if(i == 1)//判断超时
+	{
+		gettimeofday(&Time_now, NULL);
+		if(My_timeout(&Time_start, &Time_now, GET_CONTROLBOARD_STATE_TIMEOUT) == 0)
+		{
+			i = 0;
+			struct tm * stime = ReadSysTime_returnTm();
+			tmTodatetime_t(stime, &_dt);
+			char buf[16] = {0};
+			uint64_t time_uint64_t = datetime_pack_bits(&_dt);
+			sprintf(buf, "%01X%08X%01X%01X", (uint32_t)(time_uint64_t >> 32 & 0xF),(uint32_t)(time_uint64_t  & 0xFFFFFFFF), Get_Trak_State(), Get_Branch_State(0));
+			//与分控通信，获取状态
+			if(UartSend(fd_RS485_index_0, ControlBoard_1, ControlBoard_Get_State_Command, 1, buf) != 0)
+			{
+				//通讯失败，报错
+			}else
+			{
+				sprintf(buf, "%01X%08X%01X%01X", (uint32_t)(time_uint64_t >> 32 & 0xF),(uint32_t)(time_uint64_t  & 0xFFFFFFFF), Get_Trak_State(), 1);
+				if(UartSend(fd_RS485_index_0, ControlBoard_2, ControlBoard_Get_State_Command, 1, buf) != 0)
+				{
+					//通讯失败，报错
+				}else
+				{
+
+				}
+			}
+		}
+	}
+}
+
+/*
+ * 分控电机运动
+ * ControlBoardAddr 分控地址0x08 - 0x0B
+ * Motor_Addr 电机地址 1 2 3
+ * _steps 坐标
+ *
+ * return :
+ * 1 : 通讯故障
+ * 0 ：正常结束
+ * 5 ： 运行中
+ *
+ */
+int ControlBoard_Motor_Move(int ControlBoardAddr, int Motor_Addr, char * _steps)
+{
+	static struct timeval Time_start;
+	static struct timeval Time_now;
+	if(_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_Busy;
+		char _steps_buf[12] = {0};
+		if(Motor_Addr == 0x03)
+		{
+			sprintf(_steps_buf, "%02X1", 4);
+		}else
+		{
+			sprintf(_steps_buf, "%02X1", Motor_Addr);
+		}
+		memcpy(_steps_buf + 3, _steps, 8);
+		gettimeofday(&Time_start, NULL);
+		gettimeofday(&Time_now, NULL);
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (ControlBoardAddr - 0x08), ControlBoard_Set_Motor_Place_Command,1, _steps_buf) != 0)
+		{
+			_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_NoBusy;
+			return 1;
+		}
+		ControlBoard_Motor_Num[ControlBoardAddr - 0x08] = STEP_1;
+	}else{
+		if(ControlBoard_Motor_Num[ControlBoardAddr - 0x08] == STEP_1)//等电机移动完成
+		{
+			if(My_timeout(&Time_start, &Time_now, GET_CONTROLBOARD_STATE_TIMEOUT) == 0)
+			{
+				int point_offset = 0;
+				if(Motor_Addr == 0x01)
+				{
+					point_offset = 6;
+				}else if(Motor_Addr == 0x02)
+				{
+					point_offset = 5;
+				}else if(Motor_Addr == 0x03)
+				{
+					point_offset = 4;
+				}
+				if(AsciiToHex(*(_ControlBoard[fd_RS485_index_0].Motor[ControlBoardAddr].point + point_offset)) != 0x0)//0为移动中
+				{
+					//完成
+					_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_NoBusy;
+					return 0;
+				}else
+				{
+					return 5;
+				}
+			}else
+			{
+				gettimeofday(&Time_now, NULL);
+				return 5;
+			}
+		}else
+		{
+			return 5;
+		}
+	}
+	return 5;
+}
+
+/*
+ * 读电机位置
+ * ControlBoardAddr 分控地址0x08 - 0x0B
+ * Motor_Addr 电机地址 1 2 3
+ *
+ * return :
+ * 1 : 通讯故障
+ * 0 ：正常结束
+ * 5:组件忙
+ */
+int ControlBoard_Read_Place(int ControlBoardAddr, int Motor_Addr)
+{
+	if(_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_Busy;
+		char _steps_buf[12] = {0};
+		if(Motor_Addr == 0x03)
+		{
+			sprintf(_steps_buf, "%02X0", 4);
+		}else
+		{
+			sprintf(_steps_buf, "%02X0", Motor_Addr);
+		}
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (ControlBoardAddr - 0x08), ControlBoard_Set_Motor_Place_Command, 1, _steps_buf) != 0)
+		{
+			_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_NoBusy;
+			return 1;
+		}else
+		{
+			_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_NoBusy;
+			return 0;
+		}
+	}else
+	{
+		return 5;
+	}
+}
+
+void ControlBoard_1_Set_Motor_Place(NetCmd *cmd)
+{
+	int motor_index = 0;
+	if(PackByte(&cmd->pvar[1]) == 0x04)//3号电机
+	{
+		motor_index = 3;
+	}else
+	{
+		motor_index = PackByte(&cmd->pvar[1]);
+	}
+	if(AsciiToHex(cmd->pvar[0]) == 0x01)//设置位置
+	{
+
+		int ret = ControlBoard_Motor_Move(cmd->viraddr, motor_index, &cmd->pvar[3]);
+		switch(ret)
+		{
+		case 0:
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+			break;
+		case 1:
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+			break;
+		case 5:
+			break;
+		}
+	}else if(AsciiToHex(cmd->pvar[0]) == 0x00)//读位置
+	{
+		int ret = ControlBoard_Read_Place(cmd->viraddr, motor_index);
+		if(ret == 1)
+		{
+			//通讯失败
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+		}else
+		{
+			char _Point[16] = "";
+			strncat(_Point, _ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 4, 8);
+			Eth_Send_Queue(cmd, 0, 0xFF, 2, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point), _Point);
+		}
+	}
+}
+
+void ControlBoard_LockMotor(NetCmd *cmd)//分控_锁定/释放电机
+{
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+		int err = 0;
+		char _steps_buf[12] = {0};
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 0) == 1)//1号电机
+		{
+			sprintf(_steps_buf, "%02X%c", 1, cmd->pvar[0]);
+			err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_FreeMortor_Command, 1, _steps_buf);
+			if(err != 0)
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+				_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+				return;
+			}else
+			{
+				if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}
+			}
+		}
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 1) == 1)//2号电机
+		{
+			sprintf(_steps_buf, "%02X%c", 2, cmd->pvar[0]);
+			err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_FreeMortor_Command, 1,  _steps_buf);
+			if(err != 0)
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+				_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+				return;
+			}else
+			{
+				if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}
+			}
+		}
+		if(BIT(PackByte((char*) &cmd->pvar[1]), 2) == 1)//3号电机
+		{
+			sprintf(_steps_buf, "%02X%c", 4, cmd->pvar[0]);
+			err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_FreeMortor_Command, 1,  _steps_buf);
+			if(err != 0)
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+				_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+				return;
+			}else
+			{
+				if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}
+			}
+		}
+		Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+	}
+}
+
+int ControlBoard_Set_Mode(int ControlBoardAddr, int mode)//设置分控模式
+{
+	int num = 0;
+	if(_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_Busy;
+		char mode_buf[2] = {0};
+		sprintf(mode_buf, "%01X", mode);
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (ControlBoardAddr - 0x08), ControlBoard_Set_Mode_Command ,1, mode_buf) != 0)
+		{
+			//通信失败
+			num = 1;
+		}
+		_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_NoBusy;
+	}else{
+		num = 5;
+	}
+	return num;
+}
+
+char ControlBoard_Turntable_Respond(int ControlBoardAddr, int carNum)
+{
+	int num = 0;
+	if(_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_Busy;
+		char carnum_buf[3] = {0};
+		sprintf(carnum_buf, "%01X", carNum);
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (ControlBoardAddr - 0x08), ControlBoard_Turntable_Respond_Command ,1, carnum_buf) != 0)
+		{
+			//通信失败
+			num = 1;
+		}
+		_State_Moudle.State_ControlBoard_Module[ControlBoardAddr - 0x08] = State_NoBusy;
+	}else{
+		num = 5;
+	}
+	return num;
+}
+
+void ControlBoard_BranchFree(NetCmd *cmd)//分支释放
+{
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Branch_Free_Command, 1, cmd->pvar[0] == '0' ? "0" : "1") != 0)
+		{
+			////有通讯故障，报错
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+		}else
+		{
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+		}
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+	}
+}
+
+void ControlBoard_BranchEnable(NetCmd *cmd)//分支启用/停用
+{
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+		Set_Branch_State(cmd->viraddr - 0x08, AsciiToHex(cmd->pvar[0]));
+		Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+	}
+}
+
+
+void ControlBoard_MortorReset(NetCmd *cmd)//电机复位
+{
+	static struct timeval Time_start[4];
+	static struct timeval Time_now[4];
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+		int err = 0;
+		char _steps_buf[12] = {0};
+
+		if(PackByte((char*) &cmd->pvar[0]) == 0XFF)
+		{
+			sprintf(_steps_buf, "%02X%c", 0XFF, cmd->pvar[2]);
+			err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Motor_Reset_Command, 1, _steps_buf);
+			if(err != 0)
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+				_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+				return;
+			}else
+			{
+				if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}
+			}
+		}
+		else
+		{
+			if(BIT(PackByte((char*) &cmd->pvar[0]), 0) == 1)//1号电机
+			{
+				sprintf(_steps_buf, "%02X%c", 1, cmd->pvar[2]);
+				err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Motor_Reset_Command, 1, _steps_buf);
+				if(err != 0)
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}else
+				{
+					if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+					{
+						Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+						_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+						return;
+					}
+				}
+			}
+			if(BIT(PackByte((char*) &cmd->pvar[0]), 1) == 1)//2号电机
+			{
+				sprintf(_steps_buf, "%02X%c", 2, cmd->pvar[2]);
+				err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Motor_Reset_Command, 1,  _steps_buf);
+				if(err != 0)
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}else
+				{
+					if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+					{
+						Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+						_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+						return;
+					}
+				}
+			}
+			if(BIT(PackByte((char*) &cmd->pvar[0]), 2) == 1)//3号电机
+			{
+				sprintf(_steps_buf, "%02X%c", 4, cmd->pvar[2]);
+				err = UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Motor_Reset_Command, 1,  _steps_buf);
+				if(err != 0)
+				{
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					return;
+				}else
+				{
+					if(PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2) != 0)//分控和电机通讯失败
+					{
+						Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+						_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+						return;
+					}
+				}
+			}
+		}
+
+		gettimeofday(&Time_start[cmd->viraddr - 0x08], NULL);
+		gettimeofday(&Time_now[cmd->viraddr - 0x08], NULL);
+		if(0 != err)
+		{
+			//有通讯故障，报错
+			_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+		}else
+		{
+			ControlBoard_Motor_Num[cmd->viraddr - 0x08] = STEP_1;
+		}
+	}else
+	{
+		if(My_timeout(&Time_start[cmd->viraddr - 0x08], &Time_now[cmd->viraddr - 0x08], GET_CONTROLBOARD_STATE_TIMEOUT) == 0)
+		{
+			if(ControlBoard_Motor_Num[cmd->viraddr - 0x08] == STEP_1)
+			{
+				if(AsciiToHex(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point[4]) != 0x0//3号电机
+						&& AsciiToHex(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point[5]) != 0x0 //2号电机
+						&& AsciiToHex(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point[6]) != 0x0)//1号电机      //0为移动中
+				{
+					//完成
+					_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+					Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+				}
+			}
+		}else
+		{
+			gettimeofday(&Time_now[cmd->viraddr - 0x08], NULL);
+		}
+	}
+}
+
+void ControlBoard_ReadORWrite_Parameter(NetCmd *cmd)
+{
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_ReadOrWrite_Para_Command, 1, cmd->pvar) != 0)
+		{
+			////有通讯故障，报错
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+		}else
+		{
+			Eth_Send_Queue(cmd, 0, 0xFF, 2, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point), _ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 4);
+		}
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+	}
+}
+
+/*
+ * 读版本
+ */
+void ControlBoard_Read_Version(NetCmd *cmd)
+{
+	char add_buf[3] = {'0', '0', 0};
+	switch(PackByte(&cmd->pvar[0])){
+	case 0x00://分控版本
+		memcpy(add_buf, "00", 2);
+		break;
+	case 0x01://1号电机（压帽电机）
+		memcpy(add_buf, "01", 2);
+		break;
+	case 0x02://2号电机（吸样转盘）
+		memcpy(add_buf, "02", 2);
+		break;
+	case 0x03://3号电机（分样转盘）
+		memcpy(add_buf, "04", 2);
+		break;
+	case 0x04://分样转盘下的IC卡
+		memcpy(add_buf, "10", 2);
+		break;
+	case 0x05://吸样转盘下的IC卡
+		memcpy(add_buf, "20", 2);
+		break;
+
+	}
+	if(UartSend(fd_RS485_index_0, cmd->viraddr, ControlBoard_Read_Version_Command, 1, add_buf) != 0)
+	{
+		////有通讯故障，报错
+		Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+	}else
+	{
+		char version[4][9] = {""};
+		uint8_t len = PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 4);
+		len += 2;
+		int i = 0;
+		int n = (len / 8) + (len % 8 == 0 ? 0 : 1);
+		for(i = 0; i < n; i++)
+		{
+			if(i == n - 1)
+			{
+				if((len % 8) == 0)
+				{
+					memcpy(version[i],  _ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 4 + (8 * i), 8);
+				}else
+				{
+					memcpy(version[i],  _ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 4 + (8 * i), len % 8);
+					memset(version[i] + (len % 8), '0', 8 - (len % 8));
+				}
+
+			}else
+			{
+				memcpy(version[i],  _ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 4 + (8 * i), 8);
+			}
+		}
+
+		Eth_Send_Queue(cmd, 0, 0xFF, n + 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point), version[0], version[1], version[2], version[3]);
+	}
+}
+
+/*
+ * 92可测试项目配置
+ */
+void ControlBoard_92_can_test_project(NetCmd *cmd)
+{
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+		if(UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_92_Can_Test_Project_Command, 1, cmd->pvar) != 0)
+		{
+			////有通讯故障，报错
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+		}else
+		{
+			Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point));
+		}
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+	}
+}
+
+//读写电机参数
+void ControlBoard_MotorPara(NetCmd *cmd)
+{
+	if(_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] == State_NoBusy)
+	{
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_Busy;
+		if(AsciiToHex(cmd->pvar[0]) == 0)//读
+		{
+			char buf[128] = {0};
+
+			if(PackByte(&cmd->pvar[1]) == 0x03)
+			{
+				sprintf(buf, "%c04", cmd->pvar[0]);
+			}else
+			{
+				memcpy(buf, &cmd->pvar[0], 3);
+			}
+			if(UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Motor_Para_Command, 1, buf) != 0)
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+			}else
+			{
+				int len = PackByte(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point);
+				if(len != 122)
+				{
+
+				}else
+				{
+					memset(buf, 0, 128);
+					memcpy(buf, _ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 6, len - 4);
+				}
+
+				Eth_Send_Queue(cmd, 0, 0xFF, 2, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2), buf);
+			}
+		}else if(AsciiToHex(cmd->pvar[0]) == 1)//写
+		{
+			char buf[128] = {0};
+			int len = 121;
+			if(PackByte(&cmd->pvar[1]) == 0x03)
+			{
+				sprintf(buf, "%c04", cmd->pvar[0]);
+			}else
+			{
+				memcpy(buf, &cmd->pvar[0], 3);
+			}
+			memcpy(buf + 3, &cmd->pvar[3], len -3);
+			if(UartSend(fd_RS485_index_0, ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Motor_Para_Command, 1, buf) != 0)
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(ControlBoard_1 + (cmd->viraddr - 0x08), ControlBoard_Mode_Communication_Err));
+			}else
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, PackWord(_ControlBoard[fd_RS485_index_0].Motor[cmd->viraddr].point + 2));
+			}
+
+		}else
+		{
+
+		}
+		_State_Moudle.State_ControlBoard_Module[cmd->viraddr - 0x08] = State_NoBusy;
+	}
+}
+
+void ControlBoard_1_Module(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case READ_VERSION://读版本
+		ControlBoard_Read_Version(cmd);
+		break;
+	case SET_MOTOR_PLACE://分控设置电机位置
+		ControlBoard_1_Set_Motor_Place(cmd);
+		break;
+	case MOTOR_FREE://电机释放
+		ControlBoard_LockMotor(cmd);
+		break;
+	case BRANCH_FREE://分支释放
+		ControlBoard_BranchFree(cmd);
+		break;
+	case MOTOR_RESET://电机复位
+		ControlBoard_MortorReset(cmd);
+		break;
+	case 0x07://读写参数
+		ControlBoard_ReadORWrite_Parameter(cmd);
+		break;
+	case BRANCH_ENABLE://分支启用
+		ControlBoard_BranchEnable(cmd);
+		break;
+	case SF9200_CAN_TEST_PROJECT://92可测试项目配置
+		ControlBoard_92_can_test_project(cmd);
+		break;
+	case READ_WRITE_MOTOR_PARA://读写电机参数
+		ControlBoard_MotorPara(cmd);
+		break;
+	}
+}

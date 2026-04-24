@@ -1,0 +1,70 @@
+/*
+ * TurnPlate_1.c
+ *
+ *转盘1（靠近机械手的转盘）
+ *  Created on: 2025-12-29
+ *      Author: ThinkPad
+ */
+
+#include "TurnPlate_1.h"
+#include "Gloable_Schema.h"
+
+#define MOTOR_RESET				   0x03//电机复位
+
+void TurnPlate_1_Module_ResetMotor(NetCmd *cmd)//转盘1_复位电机
+{
+	if(_State_Moudle.State_Manipulator == State_NoBusy)
+	{
+		_State_Moudle.State_Manipulator = State_Busy;
+
+		//电爪复位
+		UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, MOTOR_COM_RESET, 0);
+		ManipulatorModule_Num = STEP_1;
+	}else
+	{
+		if(ManipulatorModule_Num == STEP_1)
+		{
+			//查电爪复位状态，等待复位完成
+			UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, MOTOR_COM_READRESETSTATE, 0);
+			if(PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_hand].point) == 0x01)//电爪复位完成，复位Z轴
+			{
+				UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_RESET, 0);
+				ManipulatorModule_Num = STEP_2;
+			}
+		}else if(ManipulatorModule_Num == STEP_2)
+		{
+			//查询Z轴复位状态
+			UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_READRESETSTATE, 0);
+			if(PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_z].point) == 0x01)//Z轴复位完成，复位其他
+			{
+				UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_x, MOTOR_COM_RESET, 0);
+				UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_y, MOTOR_COM_RESET, 0);
+				ManipulatorModule_Num = STEP_3;
+			}
+		}else if(ManipulatorModule_Num == STEP_3)
+		{
+			//查询其他轴复位状态
+			UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_x, MOTOR_COM_READRESETSTATE, 0);
+			UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_y, MOTOR_COM_READRESETSTATE, 0);
+			if(PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_x].point) == 0x01
+					&& PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_y].point) == 0x01)//其他轴复位完成，复位完成
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+				_State_Moudle.State_Manipulator = State_NoBusy;
+			}
+		}
+
+	}
+}
+
+void TurnPlate_1_Module(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case MOTOR_RESET://复位
+		TurnPlate_1_Module_ResetMotor(cmd);
+		break;
+
+	}
+}
+
+

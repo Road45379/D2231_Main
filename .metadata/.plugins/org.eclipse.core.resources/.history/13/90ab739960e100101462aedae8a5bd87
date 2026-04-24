@@ -1,0 +1,13 @@
+/*
+ * PublicCommand.h
+ *
+ *  Created on: 2025-12-23
+ *      Author: ThinkPad
+ */
+
+#ifndef PUBLICCOMMAND_H_
+#define PUBLICCOMMAND_H_
+
+void PublicCommand(char *buff);
+
+#endif /* PUBLICCOMMAND_H_ */

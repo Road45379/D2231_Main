@@ -1,0 +1,121 @@
+/*
+ * TurnPlate_1.c
+ *
+ *转盘1（靠近机械手的转盘）
+ *  Created on: 2025-12-29
+ *      Author: ThinkPad
+ */
+
+#include "TurnPlate_1.h"
+
+
+#define MOTOR_RESET				   0x03//电机复位
+#define SET_TurnPlate_1_PLACE      0x16//设置转盘位置
+
+enum
+{
+	TurnPlate_1_Mode_Motor_Add = 1 //转盘1电机
+};
+
+void TurnPlate_1_Module_ResetMotor(NetCmd *cmd)//转盘1_复位电机
+{
+	if(_State_Moudle.State_TurnPlate_1_Module == State_NoBusy)
+	{
+		_State_Moudle.State_TurnPlate_1_Module = State_Busy;
+
+		//转盘复位
+		UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_RESET, 0);
+		TurnPlate_1_Module_Num = STEP_1;
+	}else
+	{
+		if(TurnPlate_1_Module_Num == STEP_1)
+		{
+			//等转盘复位完成
+			UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_READRESETSTATE, 0);
+			if(PackByte(_ControlBoard[fd_RS485_index_1].Motor[TurnPlate_1_Mode_Motor_Add].point) == 0x01)//转盘复位完成
+			{
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+				_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+			}
+		}
+	}
+}
+
+/*
+ * 转盘移动
+ * _steps 坐标
+ *
+ * return :
+ * 1 : 通讯故障
+ * 0 ：正常结束
+ * 5 ： 运行中
+ *
+ */
+int TurnPlate_1_Move(char * _steps)
+{
+	if(_State_Moudle.State_TurnPlate_1_Module == State_NoBusy)
+	{
+		_State_Moudle.State_TurnPlate_1_Module = State_Busy;
+		char _steps_buf[9] = {0};
+		memcpy(_steps_buf, _steps, 8);
+		if(UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_SETSTEPS,1, _steps_buf) != 0)
+		{
+
+			return 1;
+		}
+		TurnPlate_1_Module_Num = STEP_1;
+	}else{
+		if(TurnPlate_1_Module_Num == STEP_1)//等转盘移动完成
+		{
+			if(UartSend(fd_RS485_index_1, TurnPlate_1_Mode_Motor_Add, MOTOR_COM_READ_IN_PLACE, 0) != 0)
+			{
+				_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+				return 1;
+			}
+			if(PackByte(_ControlBoard[fd_RS485_index_1].Motor[TurnPlate_1_Mode_Motor_Add].point) != 0x00)//0为移动中
+			{
+				//完成
+				_State_Moudle.State_TurnPlate_1_Module = State_NoBusy;
+				return 0;
+			}else
+			{
+				return 5;
+			}
+		}
+	}
+}
+
+void TurnPlate_1_Module_Set_Place(NetCmd *cmd)
+{
+	int ret = ManipulatorMove(&cmd->pvar[2], &cmd->pvar[10], &cmd->pvar[18], &cmd->pvar[27], 1, BIT(PackByte(&cmd->pvar[0]), 0), BIT(PackByte(&cmd->pvar[0]), 1), BIT(PackByte(&cmd->pvar[0]), 2));
+	switch(ret){
+	case 0:
+		Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+		break;
+	case 1:
+		break;
+	case 2:
+		break;
+	case 3:
+		break;
+	case 4:
+		break;
+	}
+
+
+}
+
+
+void TurnPlate_1_Module(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case MOTOR_RESET://复位
+		TurnPlate_1_Module_ResetMotor(cmd);
+		break;
+	case SET_TurnPlate_1_PLACE://设置转盘位置
+		break;
+
+	}
+}
+
+

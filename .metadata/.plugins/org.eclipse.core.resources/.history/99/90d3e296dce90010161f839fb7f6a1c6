@@ -1,0 +1,15 @@
+/*
+ * CAN_User_Code.h
+ *
+ *  Created on: 2026-1-5
+ *      Author: ThinkPad
+ */
+
+#ifndef CAN_USER_CODE_H_
+#define CAN_USER_CODE_H_
+
+void Can_open();
+int CanSendCommand(int dstaadr, int motoraddr, int cmdnum, unsigned int *Datanum);
+//void *myrecv_can();
+
+#endif /* CAN_USER_CODE_H_ */

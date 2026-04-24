@@ -1,0 +1,89 @@
+/*
+ * Gloable_Schema.c
+ *
+ * 全局变量及头文件
+ *
+ *  Created on: 2025-12-22
+ *      Author: Administrator
+ */
+#include "Gloable_Schema.h"
+
+#define RS485_NUM   4
+
+volatile int fd_RS485_115200[RS485_NUM] = {0};//3:轨道
+
+void Set_fd_RS485_115200(int _index, int val)
+{
+	fd_RS485_115200[_index] = val;
+}
+
+int Get_fd_RS485_115200(int _index)
+{
+	return fd_RS485_115200[_index];
+}
+
+volatile queue *PQueue_TarskControlModule1 = NULL;//轨道模块队列
+volatile queue *PQueue_ManipulatorModule1 = NULL;//机械手模块队列
+State_Moudle _State_Moudle;
+
+volatile queue *PQueue_ETH_Send = NULL;//网口发送队列
+
+/*
+ * 命令执行完成返回的队列，入队后当队列不为空时发送
+ * action_index : 动作索引 若为组合动作，出错时，返回出错时动作的索引，从1开始；其它情况，包括正常状态返回0。
+ * module_index ： 组件索引 默认为FF，保留。
+ * num ：附加参数长度,第一个附加参数为状态码
+ */
+
+int Eth_Send_Queue(NetCmd *cmd, int action_index, int module_index, int num, ...)
+{
+	va_list args;
+	char send_buf[4096] = "";
+	char send_crcbuf[8] = "";
+	char ActionIndex[2] = "";
+	char ModuleIndex[4] = "";
+	memset(send_buf, 0, sizeof(send_buf));
+	strncat(send_buf, cmd->netcmdhead, 11);
+	strcat(send_buf, "02");
+	//strcat(send_buf, cmd->netcmdhead + 11);
+	sprintf(ActionIndex, "%X", action_index);
+	sprintf(ModuleIndex, "%02X", module_index);
+	strcat(send_buf, ActionIndex);
+	strcat(send_buf, ModuleIndex);
+	va_start(args, num);
+	char stateNum[8];
+	sprintf(stateNum, "%04X", va_arg(args, int));
+	strcat(send_buf, stateNum);
+	int num_t = 5 - num;
+	num = num - 1;
+	while(num-- > 0)
+	{
+		strcat(send_buf, va_arg(args, char*));
+	}
+	if(cmd->code != 0x07 && cmd->code != 0x83 && cmd->code != 0x84)
+	{
+		while(num_t-- > 0)
+		{
+			strcat(send_buf, "00000000");
+		}
+	}
+	crc_check((uint8_t *)send_buf, send_crcbuf);
+	strcat(send_buf, send_crcbuf);
+	strcat(send_buf, "\r\n");
+
+	va_end(args);
+	return enQueue(PQueue_ETH_Send, send_buf, strlen(send_buf));;
+}
+
+void my_memset(int *str, int vle, int len)
+{
+	while(len--)
+	{
+		*str++ = vle;
+	}
+}
+
+//动作编号
+volatile int ManipulatorModule_Num = STEP_0;
+
+NetCmd *ParsingStringToNetCmd_NetCmd_Public = NULL;//主控解析指令

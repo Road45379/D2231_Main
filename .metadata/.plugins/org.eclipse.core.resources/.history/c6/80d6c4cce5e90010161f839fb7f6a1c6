@@ -1,0 +1,122 @@
+/*
+ * SampleShelf.c
+ *
+ *样本架模块
+ *
+ *  Created on: 2025-12-31
+ *      Author: ThinkPad
+ */
+#include "SampleShelf.h"
+
+#define Read_SampleShelf_State_Timeout   50//ms
+
+
+#define SAMPLESHELF_READSTATE			 0x11//读状态
+#define LED_CONTROL						 0x13//LED控制
+
+
+void SampleShelf_ReadState(NetCmd *cmd)
+{
+	//发送>082读状态，间隔50ms
+	static struct timeval Time_start;
+	static struct timeval Time_now;
+	if(My_timeout(&Time_start, &Time_now, Read_SampleShelf_State_Timeout) == 0)
+	{
+		if(UartSend(fd_RS485_index_0, SampleShelf_Mode_Add, MAGENT_COM_READSTEPS, 0) != 0)
+		{
+			//通讯失败，报错
+		}else
+		{
+			//通讯成功，解析状态
+			_MagentBoard_STATE_tmp.Microswitch_state = PackWord(_ControlBoard[fd_RS485_index_0].Motor[SampleShelf_Mode_Add].point + 4);
+			_MagentBoard_STATE_tmp.LED_state = Pack8Byte(_ControlBoard[fd_RS485_index_0].Motor[SampleShelf_Mode_Add].point + 5)  & 0x000FFFFF;
+			_MagentBoard_STATE_tmp.KEY_state = PackWord(_ControlBoard[fd_RS485_index_0].Motor[SampleShelf_Mode_Add].point + 13);
+			int i = 0;
+			int n = 0;
+			char _static[16] = "";
+			i = calc_diff_bit(_MagentBoard_STATE.Microswitch_state, _MagentBoard_STATE_tmp.Microswitch_state);
+			if(i > 0)
+			{
+				//上反
+				for(; n < 10; n++)
+				{
+					if(BIT(i, n) != 0)
+					{
+						sprintf(_static, "2%01X%01X00000", n + 1, getBit(_MagentBoard_STATE_tmp.Microswitch_state, n ));
+						Eth_Send_Queue(cmd, 0, 0xFF, 2, 0000, _static);
+					}
+				}
+				_MagentBoard_STATE.Microswitch_state = _MagentBoard_STATE_tmp.Microswitch_state;
+			}
+			i = calc_diff_bit(_MagentBoard_STATE.LED_state, _MagentBoard_STATE_tmp.LED_state);
+			if(_MagentBoard_STATE.LED_state != _MagentBoard_STATE_tmp.LED_state)
+			{
+				//上反
+				for(n = 0; n < 20;)
+				{
+					if(((_MagentBoard_STATE.LED_state >> n) & 0x3) != ((_MagentBoard_STATE_tmp.LED_state >> n) & 0x3))
+					{
+						sprintf(_static, "3%01X%01X00000", (n / 2) + 1, ((_MagentBoard_STATE_tmp.LED_state >> n) & 0x3));
+						Eth_Send_Queue(cmd, 0, 0xFF, 2, 0000, _static);
+					}
+					n = n + 2;
+				}
+				_MagentBoard_STATE.LED_state = _MagentBoard_STATE_tmp.LED_state;
+			}
+			i = calc_diff_bit(_MagentBoard_STATE.KEY_state, _MagentBoard_STATE_tmp.KEY_state);
+			if(i > 0)
+			{
+				//上反
+				for(n = 0; n < 10; n++)
+				{
+					if(BIT(i, n) != 0)
+					{
+						sprintf(_static, "1%01X%01X00000", n + 1, getBit(_MagentBoard_STATE_tmp.KEY_state, n ));
+						Eth_Send_Queue(cmd, 0, 0xFF, 2, 0000, _static);
+					}
+				}
+				_MagentBoard_STATE.KEY_state = _MagentBoard_STATE_tmp.KEY_state;
+			}
+		}
+		gettimeofday(&Time_start, NULL);
+	}else
+	{
+		gettimeofday(&Time_now, NULL);
+	}
+}
+
+
+void SampleShelfModule(NetCmd *cmd)
+{
+	switch(cmd->code){
+	case SAMPLESHELF_READSTATE://读状态
+	{
+		char _state_1[9] = "";
+		char _state_2[9] = "";
+		char _state_3[9] = "";
+		int n  = 0;
+		for(n = 0; n < 8; n++)
+		{
+			sprintf(_state_1 + n, "%01X", getBit(_MagentBoard_STATE_tmp.Microswitch_state, n ));
+		}
+		for(n = 0; n < 2; n++)
+		{
+			sprintf(_state_2 + n, "%01X", getBit(_MagentBoard_STATE_tmp.Microswitch_state, (n + 8)));
+		}
+		for(n = 2; n < 8; n++)
+		{
+			sprintf(_state_2 + n, "%01X", ((_MagentBoard_STATE_tmp.LED_state >> ((n * 2) - 4)) & 0x3));
+		}
+		for(n = 4; n < 8; n++)
+		{
+			sprintf(_state_3 + (n - 4), "%01X", ((_MagentBoard_STATE_tmp.LED_state >> ((n * 2) + 4)) & 0x3));
+		}
+		sprintf(_state_3, "%s0000", _state_3);
+		Eth_Send_Queue(cmd, 0, 0xFF, 4, 0000, _state_1, _state_2, _state_3);
+	}
+		break;
+	case LED_CONTROL:
+
+		break;
+	}
+}
