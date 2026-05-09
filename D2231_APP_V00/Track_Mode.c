@@ -17,13 +17,12 @@
 #define READ_MOTOR_STATE	   		0x13	//读电机状态
 
 
-
 void TarskControlModule_MotorStartOrStop(NetCmd *cmd)
 {
 	int start_or_stop = 0;
 	start_or_stop = AsciiToHex(cmd->pvar[0]);//0 停止 ,1 启动
 	static int i = 0;
-	static int n = 0;
+	//static int n = 0;
 	if(_State_Moudle.State_TarskControlModule1 == State_NoBusy)
 	{
 		_State_Moudle.State_TarskControlModule1 = State_Busy;
@@ -60,10 +59,7 @@ void TarskControlModule_MotorStartOrStop(NetCmd *cmd)
 			_State_Moudle.State_TarskControlModule1 = State_NoBusy;
 			i = 0;
 		}
-
 	}
-
-
 }
 
 /*
@@ -163,7 +159,7 @@ void TarskControlModule_ReadState(NetCmd *cmd)
 		}else
 		{
 			char buf [9] = {0};
-			sprintf(buf, "%02X000000", PackByte(_ControlBoard[fd_RS485_index_3].Motor[PackByte(&cmd->pvar[1])].point));
+			sprintf(buf, "%02X", PackByte(_ControlBoard[fd_RS485_index_3].Motor[PackByte(&cmd->pvar[0])].point));
 			Eth_Send_Queue(cmd, 0, 0xFF, 2, 0x0000, buf);
 		}
 		_State_Moudle.State_TarskControlModule1 = State_NoBusy;
@@ -207,8 +203,8 @@ void TarskControlModule(NetCmd *cmd)
 		}
 		break;
 	case MOTOR_STARTORSTOP://轨道电机启停
-		TarskControlModule_MotorStartOrStop(cmd);
 		Set_Trak_State(AsciiToHex(cmd->pvar[0]));
+		TarskControlModule_MotorStartOrStop(cmd);
 		break;
 	case MOTOR_READ_MOTOR_EXIST://查询轨道电机是否存在
 		Read_Track_Motor_Exist(cmd);

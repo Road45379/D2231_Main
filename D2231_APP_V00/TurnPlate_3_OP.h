@@ -16,6 +16,7 @@
 
 #define RFID_4_ADDR		0x4F
 #define TRACK_OFFSET_OFFSET 0x04
+#define RFID_MAX_WAIT_TIME_3	50
 
 char IsTurnplateRelease();
 

@@ -51,6 +51,7 @@ void TurnPlate_3_Module_ResetMotor(NetCmd *cmd)//转盘1_复位电机
  */
 int TurnPlate_3_Move(char * _steps)
 {
+	char err;
 	if(_State_Moudle.State_TurnPlate_3_Module == State_NoBusy)
 	{
 		_State_Moudle.State_TurnPlate_3_Module = State_Busy;
@@ -70,11 +71,11 @@ int TurnPlate_3_Move(char * _steps)
 				_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
 				return 1;
 			}
-			if(PackByte(_ControlBoard[fd_RS485_index_3].Motor[TurnPlate_3_Mode_Motor_Add].point) != 0x00)//0为移动中
+			if((err = PackByte(_ControlBoard[fd_RS485_index_3].Motor[TurnPlate_3_Mode_Motor_Add].point)) != 0x00)//0为移动中
 			{
 				//完成
 				_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
-				return 0;
+				return err == 2 ? 2 : 0;
 			}else
 			{
 				return 5;

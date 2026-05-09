@@ -137,7 +137,7 @@ void my_memset(int *str, int vle, int len);
 #define MOTOR_COM_READ_PARA      	'X' //读电机参数
 #define MOTOR_COM_WRITE_PARA      	'Y' //写电机参数
 #define MOTOR_COM_SAVE_PARA      	'U' //保存电机参数
-#define MOTOR_COM_READ_STATE      	'Q' //读电机状态
+#define MOTOR_COM_READ_STATE      	'd' //读电机状态
 
 //电爪命令 （电爪和电机公用的命令按照电机命令的定义）
 #define HAND_COM_READSTEPS			'I' //读电机位置

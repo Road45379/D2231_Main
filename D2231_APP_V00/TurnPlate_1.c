@@ -23,6 +23,8 @@
 #define EMITYCAR_INTOTARK    	   0x1C//空小车是否进入轨道
 #define SAVE_POINT				   0x07//读写定位参数
 #define READ_WRITE_MOTOR_PARA	   0x08//读写电机参数
+#define MOTOR_ROTATE_START_STOP	   0x1D//读写电机参数
+
 
 #define READ_BARCODE_TIMEOUT		4000//扫码超时
 
@@ -413,8 +415,8 @@ void TurnPlate_1_Module_Read_Bar_Code(NetCmd *cmd)
 		}
 	}
 	//判断超时
-		//超时关闭扫码枪、停电机
-		//未超时、上返条码、停电机
+	//超时关闭扫码枪、停电机
+	//未超时、上返条码、停电机
 }
 
 void TurnPlate_1_Module_Write_BarCode_To_Car(NetCmd *cmd)
@@ -506,6 +508,19 @@ void TurnPlate_1_Module_MotorPara(NetCmd *cmd)
 	}
 }
 
+void TurnPlate_1_Motor_Rotate_Control(NetCmd *cmd)
+{
+	char Lock[2] = {0};
+	Lock[0] = cmd->pvar[0];
+	if(UartSend(fd_RS485_index_1, Rotate_TeatTube_Motor_Add, MOTOR_COM_MOMENT_MODE, 1, &Lock) != 0)
+	{
+		//报错
+		Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(TurnPlate_1_ModuleCommandAdd, TurnPlate_1_Module_R_Motor_Communication_Err));
+	}else
+	{
+		Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+	}
+}
 
 void TurnPlate_1_Module(NetCmd *cmd)
 {
@@ -676,6 +691,9 @@ void TurnPlate_1_Module(NetCmd *cmd)
 		break;
 	case READ_WRITE_MOTOR_PARA://读写电机参数
 		TurnPlate_1_Module_MotorPara(cmd);
+		break;
+	case MOTOR_ROTATE_START_STOP:
+		TurnPlate_1_Motor_Rotate_Control(cmd);
 		break;
 	}
 }

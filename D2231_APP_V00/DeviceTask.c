@@ -28,21 +28,21 @@ int Sensor_1_inhand = 0;//传感器1处理中
 void ReadIO(NetCmd *_NetCmd)
 {
 	int tmp = IOInput() & 0x3F;
-	static int tmp_IO = 0;
-	static int i = 0;
+	//static int tmp_IO = 0;
+	//static int i = 0;
 	static struct timeval Time_start;
 	static struct timeval Time_now;
-	int n = 0;
-	int m = 0;
+	//int n = 0;
+	//int m = 0;
 	int err = 0;
 	if(BIT(tmp, 0) == 0)
 	{
 		if(Get_CarID_Can_Return() == 0)
 		{
-			if(Sensor_1_inhand == 0)//表示传感器1当前未在处理
+			if(Sensor_1_inhand == 0  && Get_Device_Mode() != 0 && GetTurntableRespond() == 1)//表示传感器1当前未在处理
 			{
-					Sensor_1_inhand = 1;
-					gettimeofday(&Time_start, NULL);
+				Sensor_1_inhand = 1;
+				gettimeofday(&Time_start, NULL);
 			}else if(Sensor_1_inhand == 1)//表示传感器1当前在处理中
 			{
 				gettimeofday(&Time_now, NULL);
@@ -184,7 +184,7 @@ void ParsingStringToNetCmd(char *buf, NetCmd *_NetCmd)
 char Module_queue_buf[1024] = "";
 void My_deQueue(volatile queue *PQueue, int val)
 {
-	char buf[64] = "";
+	//char buf[64] = "";
 	switch(val){
 	case 0:
 		if(_State_Moudle.State_TarskControlModule1 == State_NoBusy)

@@ -19,6 +19,7 @@
 #define RFID_3_ADDR		0x3F
 #define TRACK_OFFSET_OFFSET 0x04
 #define CAR_MAX_WRITE_TIME	95000
+#define RFID_MAX_WAIT_TIME_2	50
 
 typedef char QElemtype;
 
@@ -48,6 +49,8 @@ void Turntable_2_Sensor_4(int val);
 
 void InitList(List *list);
 void ClearList(List *list);
+
+void packageErr(char moudle, char err);
 
 extern int Turntable_2_trunNum;
 extern int Turntable_2_lastLocatin;

@@ -22,7 +22,7 @@ void Turntable_2_Sensor_3(int val)
 	static struct timeval Time_start;
 	static struct timeval Time_now;
 	char result;
-	if(Sensor_3_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
+	if(Sensor_3_inhand == 0 && Sensor_4_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
 	{
 		if(BIT(val, 2) == 0)//表示传感器3触发过
 		{
@@ -42,6 +42,12 @@ void Turntable_2_Sensor_3(int val)
 		}
 		else if(result == 1)
 		{
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Communication_Err);
+			return;
+		}
+		else if(result == 2)
+		{
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Collision);
 			return;
 		}
 	}
@@ -55,7 +61,7 @@ void Turntable_2_Sensor_3(int val)
 			_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
 		}
 	}
-	if(Sensor_3_inhand == STEP_3)
+	if(Sensor_3_inhand == STEP_3 && Get_Trak_State() == 1)
 	{
 		if((result = TurnPlate_2_Move(coord)) == 0)
 		{
@@ -65,7 +71,12 @@ void Turntable_2_Sensor_3(int val)
 		}
 		else if(result == 1)
 		{
-			//TODO 报错
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Communication_Err);
+			return;
+		}
+		else if(result == 2)
+		{
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Collision);
 			return;
 		}
 	}
@@ -91,115 +102,151 @@ void Turntable_2_Sensor_4(int val)
 	static struct timeval Time_start;
 	static struct timeval Time_now;
 	char result;
-	if(Sensor_4_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
+	if(Sensor_4_inhand == 0 && Sensor_3_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
 	{
 		if(BIT(val, 3) == 0)//表示传感器4触发过
 		{
 			if(BIT(val, 2) == 1)//传感器3优先
 			{
-				if(Get_Device_Mode() == 1)
-				{
-					turntable_2_release_flag = 1;
-				}
-				else if(Get_Device_Mode() == 5)
-				{
-					turntable_2_release_flag = 1;
-					if(Read_RFID(fd_RS485_index_3, RFID_3_ADDR, TRACK_OFFSET_OFFSET) != 0x08)
-					{
-						//TODO 报错
-					}
-				}
-				else if(Get_Device_Mode() == 2 || Get_Device_Mode() == 6)
-				{
-					if((result = Read_RFID_Barcode2(fd_RS485_index_3, RFID_3_ADDR, &_message_turntable2)) == 0)
-					{
- 						if(_message_turntable2.BarCode_len == 0)
-						{
-							turntable_2_release_flag = 2;
-						}
-						else
-						{
-							writeTraInfo(fd_RS485_index_3, RFID_3_ADDR, &_message_turntable2, 1, NULL);
-							turntable_2_release_flag = takeOutWriteData(&list);
-							if(turntable_2_release_flag == 2)
-							{
-								//TODO 报错
-								return;
-							}
-						}
-					}
-					else if(result == 1)
-					{
-						turntable_2_release_flag = 2;
-					}
-					else if(result == 2)
-					{
-						//TODO 报错
-						return;
-					}
-				}
-				else if(Get_Device_Mode() == 3)
-				{
-					turntable_2_release_flag = 0;
-				}
-				else if(Get_Device_Mode() == 4)
-				{
-					//小车自检模式
-					if(Get_Car_Done_Amount() >= Get_Car_Amount())
-					{
-						turntable_2_release_flag = 0;
-					}
-					else
-					{
-						if((result = Read_RFID_Barcode2(fd_RS485_index_3, RFID_3_ADDR, &_message_turntable2)) == 0)
-						{
-			        		if(Read_RFID(fd_RS485_index_3, RFID_3_ADDR, _message_turntable2._04_offset) == 0x08)//读小车存储的条码
-			        		{
-			        			int writeTimes = PackWord(_ControlBoard[fd_RS485_index_3].Motor[RFID_3_ADDR].point + 13);
-			        			writeTimes += (AsciiToHex(_ControlBoard[fd_RS485_index_3].Motor[RFID_3_ADDR].point[12]) << 16);
-			        			writeTimes++;
-			        			if(writeTimes > CAR_MAX_WRITE_TIME)
-			        			{
-			        				turntable_2_release_flag = 1;
-			        			}
-			        			else
-			        			{
-			        				turntable_2_release_flag = 0;
-			        			}
-			        		}
-						}
-						else if(result == 1)
-						{
-							turntable_2_release_flag = 0;
-						}
-						else if(result == 2)
-						{
-							//TODO 报错
-							return;
-						}
-					}
-				}
-
-				snprintf(coord, sizeof(coord), "%08X",Turntable_2_trunNum * 20480 + turntable2Pos -> portPos[1]);
 				Sensor_4_inhand = STEP_1;
+				gettimeofday(&Time_start, NULL);
 			}
 		}
 	}
 	if(Sensor_4_inhand == STEP_1)
 	{
+		gettimeofday(&Time_now, NULL);
+		if(My_timeout(&Time_start, &Time_now, RFID_MAX_WAIT_TIME_2) == 0)
+		{
+			if(Get_Device_Mode() == 1)
+			{
+				turntable_2_release_flag = 1;
+			}
+			else if(Get_Device_Mode() == 5)
+			{
+				turntable_2_release_flag = 1;
+				if((result = Read_RFID(fd_RS485_index_3, RFID_3_ADDR, TRACK_OFFSET_OFFSET)) != 0x08)
+				{
+					if(result == 1 || result == 2)
+					{
+						packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_FindCard_Err);
+					}
+					else if(result == 3)
+					{
+						packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_Communication_Err);
+					}
+				}
+			}
+			else if(Get_Device_Mode() == 2 || Get_Device_Mode() == 6)
+			{
+				if((result = Read_RFID_Barcode2(fd_RS485_index_3, RFID_3_ADDR, &_message_turntable2)) == 0)
+				{
+					if(_message_turntable2.BarCode_len == 0)
+					{
+						turntable_2_release_flag = 2;
+					}
+					else
+					{
+						writeTraInfo(fd_RS485_index_3, RFID_3_ADDR, &_message_turntable2, 1, NULL);
+						turntable_2_release_flag = takeOutWriteData(&list);
+						if(turntable_2_release_flag == 3 || turntable_2_release_flag == 4)
+						{
+							packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_FindCard_Err);
+							return;
+						}
+						else if(turntable_2_release_flag == 5)
+						{
+							packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_Communication_Err);
+							return;
+						}
+					}
+				}
+				else if(result == 1)
+				{
+					turntable_2_release_flag = 2;
+				}
+				else if(result == 3 || result == 4)
+				{
+					packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_FindCard_Err);
+					return;
+				}
+				else if(result == 5)
+				{
+					packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_Communication_Err);
+					return;
+				}
+			}
+			else if(Get_Device_Mode() == 3)
+			{
+				turntable_2_release_flag = 0;
+			}
+			else if(Get_Device_Mode() == 4)
+			{
+				//小车自检模式
+				if(Get_Car_Done_Amount() >= Get_Car_Amount())
+				{
+					turntable_2_release_flag = 0;
+				}
+				else
+				{
+					if((result = Read_RFID_Barcode2(fd_RS485_index_3, RFID_3_ADDR, &_message_turntable2)) == 0)
+					{
+		        		if(Read_RFID(fd_RS485_index_3, RFID_3_ADDR, _message_turntable2._04_offset) == 0x08)//读小车存储的条码
+		        		{
+		        			int writeTimes = PackWord(_ControlBoard[fd_RS485_index_3].Motor[RFID_3_ADDR].point + 13);
+		        			writeTimes += (AsciiToHex(_ControlBoard[fd_RS485_index_3].Motor[RFID_3_ADDR].point[12]) << 16);
+		        			writeTimes++;
+		        			if(writeTimes > CAR_MAX_WRITE_TIME)
+		        			{
+		        				turntable_2_release_flag = 1;
+		        			}
+		        			else
+		        			{
+		        				turntable_2_release_flag = 0;
+		        			}
+		        		}
+					}
+					else if(result == 1)
+					{
+						turntable_2_release_flag = 0;
+					}
+					else if(result == 3 || result == 4)
+					{
+						packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_FindCard_Err);
+						return;
+					}
+					else if(result == 5)
+					{
+						packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_RFID_Communication_Err);
+						return;
+					}
+				}
+			}
+
+			snprintf(coord, sizeof(coord), "%08X",Turntable_2_trunNum * 20480 + turntable2Pos -> portPos[1]);
+			Sensor_4_inhand = STEP_2;
+		}
+	}
+	if(Sensor_4_inhand == STEP_2)
+	{
 		if((result = TurnPlate_2_Move(coord)) == 0)
 		{
 			gettimeofday(&Time_start, NULL);
-			Sensor_4_inhand = STEP_2;
+			Sensor_4_inhand = STEP_3;
 			_State_Moudle.State_TurnPlate_2_Module = State_Busy;
 		}
 		else if(result == 1)
 		{
-			//TODO 报错
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Communication_Err);
+			return;
+		}
+		else if(result == 2)
+		{
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Collision);
 			return;
 		}
 	}
-	if(Sensor_4_inhand == STEP_2)
+	if(Sensor_4_inhand == STEP_3)
 	{
 		gettimeofday(&Time_now, NULL);
 		if(My_timeout(&Time_start, &Time_now, turntable2Pos -> waitingTime[1]) == 0)
@@ -213,25 +260,30 @@ void Turntable_2_Sensor_4(int val)
 			{
 				snprintf(coord, sizeof(coord), "%08X",Turntable_2_trunNum * 20480 + turntable2Pos -> portPos[2]);
 			}
-			Sensor_4_inhand = STEP_3;
+			Sensor_4_inhand = STEP_4;
 			_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
 		}
 	}
-	if(Sensor_4_inhand == STEP_3)
+	if(Sensor_4_inhand == STEP_4 && Get_Trak_State() == 1)
 	{
 		if((result = TurnPlate_2_Move(coord)) == 0)
 		{
 			gettimeofday(&Time_start, NULL);
-			Sensor_4_inhand = STEP_4;
+			Sensor_4_inhand = STEP_5;
 			_State_Moudle.State_TurnPlate_2_Module = State_Busy;
 		}
 		else if(result == 1)
 		{
-			//TODO 报错
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Communication_Err);
+			return;
+		}
+		else if(result == 2)
+		{
+			packageErr(TurnPlate_2_ModuleCommandAdd, TurnPlate_2_Module_Collision);
 			return;
 		}
 	}
-	if(Sensor_4_inhand == STEP_4)
+	if(Sensor_4_inhand == STEP_5)
 	{
 		gettimeofday(&Time_now, NULL);
 		if(My_timeout(&Time_start, &Time_now, turntable_2_release == 1 ? turntable2Pos -> waitingTime[0] : turntable2Pos -> waitingTime[2]) == 0)
@@ -276,11 +328,12 @@ int64_t datetime_diff_seconds(const datetime_t *dt1,
     return (int64_t)difftime(t2, t1);
 }
 
-//0 - 成功，1 - 通信失败
+//0 - 成功，1、2 - 寻卡失败，3 - 通信失败
 char writeTraInfo(int UART_ADDR, int RFID_ADDR, message *_message, int pos, char *record)
 {
 	char traInfo[97];
-	if(Read_RFID(UART_ADDR, RFID_ADDR, _message ->_04_offset) == 0x08)
+	char err;
+	if((err = Read_RFID(UART_ADDR, RFID_ADDR, _message ->_04_offset)) == 0x08)
 	{
 		memcpy(traInfo, _ControlBoard[UART_ADDR].Motor[RFID_ADDR].point + 12, 96);
 		traInfo[96] = '\0';
@@ -316,18 +369,18 @@ char writeTraInfo(int UART_ADDR, int RFID_ADDR, message *_message, int pos, char
 			return 0;
 		}
 
-		if(Write_RFID(UART_ADDR, RFID_ADDR, _message -> _04_offset, traInfo) == 0x08)
+		if((err = Write_RFID(UART_ADDR, RFID_ADDR, _message -> _04_offset, traInfo)) == 0x08)
 		{
 			return 0;
 		}
 		else
 		{
-			return 1;
+			return err;
 		}
 	}
 	else
 	{
-		return 1;
+		return err;
 	}
 }
 
@@ -355,12 +408,13 @@ void putInWriteData(List *list, char *writeData, int dataLen)
 //取出测试数据并写入IC卡
 //0 --- 未找到写数据
 //1 --- 找到写数据
-//2 --- RFID报错
+//2，3，4 --- RFID报错
 char takeOutWriteData(List *list)
 {
     Node *pPre = list -> head;
     Node *pTemp = list -> head;
     char isFindData;
+    char err;
 
     int i;
     while(pTemp != NULL)
@@ -400,14 +454,13 @@ char takeOutWriteData(List *list)
         		{
         			memcpy(&testData[5], &(pTemp -> writeData[i * 91 + 21]), 91);
         		}
-        		if(Write_RFID(fd_RS485_index_3, RFID_3_ADDR, _message_turntable2._04_offset + 4 + i * 4, testData) != 0x08)
+        		if((err = Write_RFID(fd_RS485_index_3, RFID_3_ADDR, _message_turntable2._04_offset + 4 + i * 4, testData)) != 0x08)
         		{
-        			return 2;
+        			return err + 2;
         		}
         	}
 
         	packageNet(pTemp -> writeData);
-        	enQueue(PQueue_ETH_Send, pTemp -> writeData, strlen(pTemp -> writeData));
 
         	//删除节点
             if(pTemp == list -> head)
@@ -468,4 +521,18 @@ void packageNet(char *sendBuf)
 	crc_check((uint8_t *)sendBuf, send_crcbuf);
 	strcat(sendBuf, send_crcbuf);
 	strcat(sendBuf, "\r\n");
+	enQueue(PQueue_ETH_Send, sendBuf, strlen(sendBuf));
+}
+
+void packageErr(char moudle, char err)
+{
+	char sendBuff[100];
+	sendBuff[0] = '>';
+	sprintf(&sendBuff[1], "%08X", 0xFFFFFFFC);
+	sprintf(&sendBuff[9], "%02X020FF%04X", moudle, CompoundErrorCode(moudle, err));
+	char send_crcbuf[5];
+	crc_check((uint8_t *)sendBuff, send_crcbuf);
+	strcat(sendBuff, send_crcbuf);
+	strcat(sendBuff, "\r\n");
+	enQueue(PQueue_ETH_Send, sendBuff, strlen(sendBuff));
 }

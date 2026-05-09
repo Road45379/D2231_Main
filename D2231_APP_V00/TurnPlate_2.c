@@ -45,13 +45,15 @@ void TurnPlate_2_Module_ResetMotor(NetCmd *cmd)//转盘1_复位电机
  * _steps 坐标
  *
  * return :
- * 1 : 通讯故障
+ * 1 ： 通讯故障
+ * 2 ： 撞击
  * 0 ：正常结束
  * 5 ： 运行中
  *
  */
 int TurnPlate_2_Move(char * _steps)
 {
+	char err;
 	if(_State_Moudle.State_TurnPlate_2_Module == State_NoBusy)
 	{
 		_State_Moudle.State_TurnPlate_2_Module = State_Busy;
@@ -71,11 +73,11 @@ int TurnPlate_2_Move(char * _steps)
 				_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
 				return 1;
 			}
-			if(PackByte(_ControlBoard[fd_RS485_index_3].Motor[TurnPlate_2_Mode_Motor_Add].point) != 0x00)//0为移动中
+			if((err = PackByte(_ControlBoard[fd_RS485_index_3].Motor[TurnPlate_2_Mode_Motor_Add].point)) != 0x00)//0为移动中
 			{
-				//完成
+				//2撞击
 				_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
-				return 0;
+				return err == 2 ? 2 : 0;
 			}else
 			{
 				return 5;

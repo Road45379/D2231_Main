@@ -53,13 +53,11 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 	{
 		_State_Moudle.State_Manipulator = State_Busy;
 		ManipulatorModule_Num = STEP_1;
-
 	}else
 	{
-
 		if(ManipulatorModule_Num == STEP_1)
 		{
-			if(Preparatory_actions  > 0)//需要先抬起Z轴和松开爪子
+			if(Preparatory_actions == 2)//需要先抬起Z轴和松开爪子
 			{
 				//读爪子状态
 				if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_READSTATE, 0) != 0)
@@ -67,7 +65,6 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 					//有通讯故障，报错
 					_State_Moudle.State_Manipulator = State_NoBusy;
 					return 4;
-
 				}else{
 					//判断爪子状态
 					switch(PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_hand].point))
@@ -82,17 +79,53 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 						break;
 					case 0x05://张开完成05
 						//抬起Z轴
+						ManipulatorModule_Num = STEP_4;
+						break;
+					}
+				}
+			}else if(Preparatory_actions == 1)
+			{
+				//读爪子状态
+				if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_READSTATE, 0) != 0)
+				{
+					//有通讯故障，报错
+					_State_Moudle.State_Manipulator = State_NoBusy;
+					return 4;
+				}else{
+					//判断爪子状态
+					switch(PackByte(_ControlBoard[fd_RS485_index_2].Motor[Manipulator_Mode_Motor_Add_hand].point))
+					{
+					case 0x01:
+						//爪子夹住，抬起Z轴
+						ManipulatorModule_Num = STEP_4;
+						break;
+					case 0x03:
+						{
+							//有通讯故障，报错
+							_State_Moudle.State_Manipulator = State_NoBusy;
+							return 6;
+						}
+						break;
+					case 0x04://张开或者正在夹,正在运行状态04
+						//继续读爪子状态
+						break;
+					case 0x05://张开完成05
+						//爪子夹住
+						ManipulatorModule_Num = STEP_3;
+						break;
+					default:
+						//爪子夹住
 						ManipulatorModule_Num = STEP_3;
 						break;
 					}
 				}
-			}else
+			}
+			else
 			{
 				ManipulatorModule_Num = STEP_4;
 			}
 		}else if(ManipulatorModule_Num == STEP_2)//发送松开爪子指令
 		{
-
 			//松开爪子
 			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_MOVEMENT,1, HAND_COM_MOVEMENT_PUTDOWN) != 0)
 			{
@@ -102,7 +135,18 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 			}else{
 				ManipulatorModule_Num = STEP_1;//返回上一步，继续读爪子状态
 			}
-		}else if(ManipulatorModule_Num == STEP_3)//抬起Z轴
+		}else if(ManipulatorModule_Num == STEP_3)//发送爪子夹住指令
+		{
+			//爪子夹住
+			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_MOVEMENT,1, HAND_COM_MOVEMENT_TAKEUP) != 0)
+			{
+				//有通讯故障，报错
+				_State_Moudle.State_Manipulator = State_NoBusy;
+				return 4;
+			}else{
+				ManipulatorModule_Num = STEP_1;//返回上一步，继续读爪子状态
+			}
+		}else if(ManipulatorModule_Num == STEP_4)//抬起Z轴
 		{
 			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_SETSTEPS,1, MOTOR_0_STEPS) != 0)
 			{
@@ -111,9 +155,9 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 				return 3;
 			}else
 			{
-				ManipulatorModule_Num = STEP_4;
+				ManipulatorModule_Num = STEP_5;
 			}
-		}else if(ManipulatorModule_Num == STEP_4)//等抬起Z轴完成，移动X/Y
+		}else if(ManipulatorModule_Num == STEP_5)//等抬起Z轴完成，移动X/Y
 		{
 			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_READ_IN_PLACE, 0) != 0)
 			{
@@ -152,11 +196,11 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 							return 2;
 						}
 					}
-					ManipulatorModule_Num = STEP_5;
+					ManipulatorModule_Num = STEP_6;
 				}
 
 			}
-		}else if(ManipulatorModule_Num == STEP_5)//等X/Y轴完成
+		}else if(ManipulatorModule_Num == STEP_6)//等X/Y轴完成
 		{
 			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_x, MOTOR_COM_READ_IN_PLACE, 0) != 0)
 				return 1;
@@ -188,9 +232,9 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 						return 3;
 					}
 				}
-				ManipulatorModule_Num = STEP_6;
+				ManipulatorModule_Num = STEP_7;
 			}
-		}else if(ManipulatorModule_Num == STEP_6)//等z轴完成
+		}else if(ManipulatorModule_Num == STEP_7)//等z轴完成
 		{
 			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_z, MOTOR_COM_READ_IN_PLACE, 0) != 0)
 			{
@@ -218,7 +262,7 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 							_State_Moudle.State_Manipulator = State_NoBusy;
 							return 4;
 						}
-						ManipulatorModule_Num = STEP_7;
+						ManipulatorModule_Num = STEP_8;
 					}else
 					{
 						_State_Moudle.State_Manipulator = State_NoBusy;
@@ -227,7 +271,7 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 
 				}
 			}
-		}else if(ManipulatorModule_Num == STEP_7)//等电爪完成
+		}else if(ManipulatorModule_Num == STEP_8)//等电爪完成
 		{
 			//读爪子状态
 			if(UartSend(fd_RS485_index_2, Manipulator_Mode_Motor_Add_hand, HAND_COM_READSTATE, 0) != 0)
@@ -256,11 +300,11 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 
 					//以下没用
 					gettimeofday(&Time_start, NULL);
-					ManipulatorModule_Num = STEP_8;
+					ManipulatorModule_Num = STEP_9;
 
 				}
 			}
-		}else if(ManipulatorModule_Num == STEP_8)//电爪完成后延时100ms
+		}else if(ManipulatorModule_Num == STEP_9)//电爪完成后延时100ms
 		{
 			gettimeofday(&Time_now, NULL);
 			if(My_timeout(&Time_start, &Time_now, 5000) == 0)
@@ -275,7 +319,7 @@ int ManipulatorMove(char * x_steps, char * y_steps, char * z_steps, char *hand_s
 
 void ManipulatorModule_Set_Place(NetCmd *cmd)
 {
-	int ret = ManipulatorMove(&cmd->pvar[2], &cmd->pvar[10], &cmd->pvar[18], &cmd->pvar[27], 1, BIT(PackByte(&cmd->pvar[0]), 0), BIT(PackByte(&cmd->pvar[0]), 1), BIT(PackByte(&cmd->pvar[0]), 2));
+	int ret = ManipulatorMove(&cmd->pvar[2], &cmd->pvar[10], &cmd->pvar[18], &cmd->pvar[27], 2, BIT(PackByte(&cmd->pvar[0]), 0), BIT(PackByte(&cmd->pvar[0]), 1), BIT(PackByte(&cmd->pvar[0]), 2));
 	switch(ret){
 	case 0://
 		Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
@@ -741,7 +785,6 @@ int ManipulatorModule_OpenOrCloseScan(NetCmd *cmd, int flag)
 	return 0;
 }
 
-
 void ManipulatorModule_Read_SampleShelf_BarCode(NetCmd *cmd)
 {
 	_Moudle_Point.ManipulatorModule_point_x = My_ClawsPos->sampleAreaPos.clawRackPos[AsciiToHex(cmd->pvar[0]) - 1].scanFrameCodePos.x;
@@ -758,7 +801,7 @@ void ManipulatorModule_Read_SampleShelf_BarCode(NetCmd *cmd)
 	if(a == 0)//移动到目标位置
 	{
 		int ret = ManipulatorMove(x_point_buf, y_point_buf, MOTOR_0_STEPS,
-				"00", 1, 1, 1, 0);
+				"00", 2, 1, 1, 0);
 		switch(ret){
 		case 0:
 			a = 1;
@@ -870,7 +913,7 @@ void ManipulatorModule_MoveTestTube(NetCmd *cmd)//移动试管
 	if(a == 0)//松开爪子，抬起Z轴
 	{
 		int ret = ManipulatorMove(x_point_buf, y_point_buf, MOTOR_0_STEPS,
-				"00", 1, 0, 0, 1);
+				"00", 2, 0, 0, 1);
 		switch(ret){
 		case 0:
 			a = 1;
