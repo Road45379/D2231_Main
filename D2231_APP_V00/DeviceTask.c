@@ -83,11 +83,14 @@ void ReadIO(NetCmd *_NetCmd)
 			}
 		}
 	}
-	Turntable_2_Sensor_3(tmp);
-	Turntable_2_Sensor_4(tmp);
-	Turntable_3_Sensor_5(tmp);
-	Turntable_3_Sensor_6(tmp);
 
+	if(Get_Device_Mode() != 0 && GetTurntableRespond() == 1)
+	{
+		Turntable_2_Sensor_3(tmp);
+		Turntable_2_Sensor_4(tmp);
+		Turntable_3_Sensor_5(tmp);
+		Turntable_3_Sensor_6(tmp);
+	}
 /*
 
 	if(tmp_IO != tmp)//有变化
@@ -332,7 +335,7 @@ void DeviceTask_Thread()
 			ReadIO(cmd_AutoSend_Sensor_State);
 			SampleShelf_ReadState(cmd_AutoSend_SampleShelf_State);//读电磁铁板状态
 			Get_ControlBoard_State();//分控心跳包
-			CommandDispose(PQueue_TarskControlModule1,  TarskControlModule, 0);
+
 			CommandDispose(PQueue_ManipulatorModule1,  ManipulatorModule, 1);
 			CommandDispose(PQueue_TurnPlate_1_Module,  TurnPlate_1_Module, 2);
 			CommandDispose(PQueue_TurnPlate_2_Module,  TurnPlate_2_Module, 3);
@@ -341,6 +344,7 @@ void DeviceTask_Thread()
 			CommandDispose(PQueue_ControlBoard_1_Module,  ControlBoard_1_Module, 6);
 			CommandDispose(PQueue_ControlBoard_2_Module,  ControlBoard_1_Module, 7);
 		}
+		CommandDispose(PQueue_TarskControlModule1,  TarskControlModule, 0);
 		usleep(20000);
 	}
 }

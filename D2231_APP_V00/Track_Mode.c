@@ -16,49 +16,70 @@
 #define READ_WRITE_MOTOR_PARA	    0x08	//读写电机参数
 #define READ_MOTOR_STATE	   		0x13	//读电机状态
 
+int Tarsk_inhand = 0;
 
 void TarskControlModule_MotorStartOrStop(NetCmd *cmd)
 {
 	int start_or_stop = 0;
 	start_or_stop = AsciiToHex(cmd->pvar[0]);//0 停止 ,1 启动
 	static int i = 0;
+	static struct timeval Time_start;
+	static struct timeval Time_now;
 	//static int n = 0;
-	if(_State_Moudle.State_TarskControlModule1 == State_NoBusy)
-	{
-		_State_Moudle.State_TarskControlModule1 = State_Busy;
-		if(BIT(Track_Motor_Exist[i / 32], i % 32) > 0)//i = 0, 1号电机存在
-		{
-			if(0 != UartSend(fd_RS485_index_3, Tarck_Mode_Motor_Add_1, MOTOR_COM_MOMENT_MODE, 1, &cmd->pvar[0]))
-			{
-				Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(TarskControlCommandAdd, PackByte(&cmd->pvar[0])));
-				_State_Moudle.State_TarskControlModule1 = State_NoBusy;
-				i = 0;
 
-			}
-		}
-		i++;
-	}else
+	if(Tarsk_inhand == 0)
 	{
-		if(i < 0x80)
+		if(_State_Moudle.State_TarskControlModule1 == State_NoBusy)
 		{
-			if(BIT(Track_Motor_Exist[i / 32], i % 32) > 0)
+			if(start_or_stop == 0)
 			{
-				if(0 != UartSend(fd_RS485_index_3, Tarck_Mode_Motor_Add_1 + i, MOTOR_COM_MOMENT_MODE, 1, &cmd->pvar[0]))
+				Set_Trak_State(0);
+			}
+
+			_State_Moudle.State_TarskControlModule1 = State_Busy;
+			if(BIT(Track_Motor_Exist[i / 32], i % 32) > 0)//i = 0, 1号电机存在
+			{
+				if(0 != UartSend(fd_RS485_index_3, Tarck_Mode_Motor_Add_1, MOTOR_COM_MOMENT_MODE, 1, &cmd->pvar[0]))
 				{
 					Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(TarskControlCommandAdd, PackByte(&cmd->pvar[0])));
 					_State_Moudle.State_TarskControlModule1 = State_NoBusy;
 					i = 0;
-					return;
 				}
 			}
 			i++;
 		}else
 		{
-			Set_Trak_State(start_or_stop);
-			Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
-			_State_Moudle.State_TarskControlModule1 = State_NoBusy;
-			i = 0;
+			if(i < 0x80)
+			{
+				if(BIT(Track_Motor_Exist[i / 32], i % 32) > 0)
+				{
+					if(0 != UartSend(fd_RS485_index_3, Tarck_Mode_Motor_Add_1 + i, MOTOR_COM_MOMENT_MODE, 1, &cmd->pvar[0]))
+					{
+						Eth_Send_Queue(cmd, 0, 0xFF, 1, CompoundErrorCode(TarskControlCommandAdd, PackByte(&cmd->pvar[0])));
+						_State_Moudle.State_TarskControlModule1 = State_NoBusy;
+						i = 0;
+						return;
+					}
+				}
+				i++;
+			}else
+			{
+				//Set_Trak_State(start_or_stop);
+				Eth_Send_Queue(cmd, 0, 0xFF, 1, 0000);
+				_State_Moudle.State_TarskControlModule1 = State_NoBusy;
+				i = 0;
+				Tarsk_inhand = STEP_1;
+			}
 		}
+	}
+	if(Tarsk_inhand == STEP_1)
+	{
+		gettimeofday(&Time_start, NULL);
+		if(start_or_stop == 1)
+		{
+			Set_Trak_State(1);
+		}
+		Tarsk_inhand = 0;
 	}
 }
 
@@ -138,7 +159,6 @@ void TarskControlModule_MotorPara(NetCmd *cmd)
 					Eth_Send_Queue(cmd, 0, 0xFF, 1, 0x0000);
 				}
 			}
-
 		}else
 		{
 
@@ -203,9 +223,10 @@ void TarskControlModule(NetCmd *cmd)
 		}
 		break;
 	case MOTOR_STARTORSTOP://轨道电机启停
-		Set_Trak_State(AsciiToHex(cmd->pvar[0]));
+	{
 		TarskControlModule_MotorStartOrStop(cmd);
 		break;
+	}
 	case MOTOR_READ_MOTOR_EXIST://查询轨道电机是否存在
 		Read_Track_Motor_Exist(cmd);
 		break;
@@ -225,6 +246,5 @@ void TarskControlModule(NetCmd *cmd)
 	case READ_MOTOR_STATE://读电机状态
 		TarskControlModule_ReadState(cmd);
 		break;
-
 	}
 }

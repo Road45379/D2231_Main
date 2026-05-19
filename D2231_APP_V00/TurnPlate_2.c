@@ -17,7 +17,7 @@
 
 void TurnPlate_2_Module_ResetMotor(NetCmd *cmd)//转盘1_复位电机
 {
-	if(_State_Moudle.State_TurnPlate_2_Module == State_NoBusy)
+	if(_State_Moudle.State_TurnPlate_2_Module == State_NoBusy )
 	{
 		_State_Moudle.State_TurnPlate_2_Module = State_Busy;
 
@@ -61,6 +61,7 @@ int TurnPlate_2_Move(char * _steps)
 		memcpy(_steps_buf, _steps, 8);
 		if(UartSend(fd_RS485_index_3, TurnPlate_2_Mode_Motor_Add, MOTOR_COM_SETSTEPS,1, _steps_buf) != 0)
 		{
+			_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
 			return 1;
 		}
 		TurnPlate_2_Module_Num = STEP_1;

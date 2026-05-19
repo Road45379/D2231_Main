@@ -19,7 +19,7 @@ void Turntable_3_Sensor_6(int val)
 	static struct timeval Time_start;
 	static struct timeval Time_now;
 	char result;
-	if(Sensor_6_inhand == 0 && Sensor_5_inhand == 0 && _State_Moudle.State_TurnPlate_3_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
+	if(Sensor_6_inhand == 0 && Sensor_5_inhand == 0 && _State_Moudle.State_TurnPlate_3_Module == State_NoBusy && Get_Trak_State() == 1)
 	{
 		if(BIT(val, 5) == 0)//表示传感器6触发过
 		{
@@ -53,12 +53,18 @@ void Turntable_3_Sensor_6(int val)
 		gettimeofday(&Time_now, NULL);
 		if(My_timeout(&Time_start, &Time_now, railTurntablePos -> waitingTime[3]) == 0)
 		{
+			if(Get_Trak_State() == 0)
+			{
+				_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
+				Sensor_6_inhand = 0;
+				return;
+			}
 			snprintf(Turntable_3_coord, sizeof(Turntable_3_coord), "%08X",Turntable_3_trunNum * 20480 + railTurntablePos -> portPos[2]);
 			Sensor_6_inhand = STEP_3;
 			_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
 		}
 	}
-	if(Sensor_6_inhand == STEP_3 && Get_Trak_State() == 1)
+	if(Sensor_6_inhand == STEP_3)
 	{
 		if((result = TurnPlate_3_Move(Turntable_3_coord)) == 0)
 		{
@@ -97,7 +103,7 @@ void Turntable_3_Sensor_5(int val)
 	char result;
 
 	message _message;
-	if(Sensor_5_inhand == 0 && Sensor_6_inhand == 0 && _State_Moudle.State_TurnPlate_3_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
+	if(Sensor_5_inhand == 0 && Sensor_6_inhand == 0 && _State_Moudle.State_TurnPlate_3_Module == State_NoBusy && Get_Trak_State() == 1)
 	{
 		if(BIT(val, 4) == 0)//表示传感器5触发过
 		{
@@ -246,6 +252,12 @@ void Turntable_3_Sensor_5(int val)
 		gettimeofday(&Time_now, NULL);
 		if(My_timeout(&Time_start, &Time_now, railTurntablePos -> waitingTime[1]) == 0)
 		{
+			if(Get_Trak_State() == 0)
+			{
+				_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
+				Sensor_5_inhand = 0;
+				return;
+			}
 			if(turntable_3_release == 1)
 			{
 				snprintf(Turntable_3_coord, sizeof(Turntable_3_coord), "%08X",Turntable_3_trunNum * 20480 + railTurntablePos -> portPos[0]);
@@ -258,7 +270,7 @@ void Turntable_3_Sensor_5(int val)
 			_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
 		}
 	}
-	if(Sensor_5_inhand == STEP_4 && Get_Trak_State() == 1)
+	if(Sensor_5_inhand == STEP_4)
 	{
 		if((result = TurnPlate_3_Move(Turntable_3_coord)) == 0)
 		{

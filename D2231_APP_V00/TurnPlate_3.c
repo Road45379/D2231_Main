@@ -59,7 +59,7 @@ int TurnPlate_3_Move(char * _steps)
 		memcpy(_steps_buf, _steps, 8);
 		if(UartSend(fd_RS485_index_3, TurnPlate_3_Mode_Motor_Add, MOTOR_COM_SETSTEPS,1, _steps_buf) != 0)
 		{
-
+			_State_Moudle.State_TurnPlate_3_Module = State_NoBusy;
 			return 1;
 		}
 		TurnPlate_3_Module_Num = STEP_1;

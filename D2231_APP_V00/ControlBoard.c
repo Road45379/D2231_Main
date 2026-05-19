@@ -8,6 +8,7 @@
 #include "Set_Time.h"
 #include "SampleShelf.h"
 #include "ControlBoard.h"
+#include "TurnPlate_2_OP.h"
 
 #define SET_MOTOR_PLACE      		0x11//分控设置电机位置
 #define BRANCH_FREE	 		 		0x12//分支释放
@@ -19,8 +20,6 @@
 
 #define GET_CONTROLBOARD_STATE_TIMEOUT   1000//1S
 
-
-
 /*
  * 心跳查询分控状态，间隔1S
  */
@@ -29,6 +28,7 @@ void Get_ControlBoard_State()
 	static struct timeval Time_start;
 	static struct timeval Time_now;
 	static int i = 0;
+	int err = 0;
 	if(i == 0)//开始计时
 	{
 		gettimeofday(&Time_start, NULL);
@@ -47,16 +47,25 @@ void Get_ControlBoard_State()
 			//与分控通信，获取状态
 			if(UartSend(fd_RS485_index_0, ControlBoard_1, ControlBoard_Get_State_Command, 1, buf) != 0)
 			{
-				//通讯失败，报错
+				packageErr(ControlBoard_1, 0x01);
 			}else
 			{
+				err = PackByte(_ControlBoard[fd_RS485_index_0].Motor[ControlBoard_1].point + 2);
+				if(err != 0)
+				{
+					packageErr(ControlBoard_1, err);
+				}
 				sprintf(buf, "%01X%08X%01X%01X", (uint32_t)(time_uint64_t >> 32 & 0xF),(uint32_t)(time_uint64_t  & 0xFFFFFFFF), Get_Trak_State(), 1);
 				if(UartSend(fd_RS485_index_0, ControlBoard_2, ControlBoard_Get_State_Command, 1, buf) != 0)
 				{
-					//通讯失败，报错
+					packageErr(ControlBoard_2, 0x01);
 				}else
 				{
-
+					err = PackByte(_ControlBoard[fd_RS485_index_0].Motor[ControlBoard_2].point + 2);
+					if(err != 0)
+					{
+						packageErr(ControlBoard_2, err);
+					}
 				}
 			}
 		}
@@ -187,7 +196,6 @@ void ControlBoard_1_Set_Motor_Place(NetCmd *cmd)
 	}
 	if(AsciiToHex(cmd->pvar[0]) == 0x01)//设置位置
 	{
-
 		int ret = ControlBoard_Motor_Move(cmd->viraddr, motor_index, &cmd->pvar[3]);
 		switch(ret)
 		{

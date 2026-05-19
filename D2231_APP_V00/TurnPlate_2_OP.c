@@ -4,7 +4,6 @@
  *  Created on: 2026-1-5
  *      Author: Administrator
  */
-
 #include "TurnPlate_2_OP.h"
 #include "Set_Time.h"
 
@@ -22,7 +21,7 @@ void Turntable_2_Sensor_3(int val)
 	static struct timeval Time_start;
 	static struct timeval Time_now;
 	char result;
-	if(Sensor_3_inhand == 0 && Sensor_4_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
+	if(Sensor_3_inhand == 0 && Sensor_4_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1)
 	{
 		if(BIT(val, 2) == 0)//表示传感器3触发过
 		{
@@ -56,12 +55,18 @@ void Turntable_2_Sensor_3(int val)
 		gettimeofday(&Time_now, NULL);
 		if(My_timeout(&Time_start, &Time_now, turntable2Pos -> waitingTime[3]) == 0)
 		{
+			if(Get_Trak_State() == 0)
+			{
+				_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
+				Sensor_3_inhand = 0;
+				return;
+			}
 			snprintf(coord, sizeof(coord), "%08X",Turntable_2_trunNum * 20480 + turntable2Pos -> portPos[2]);
 			Sensor_3_inhand = STEP_3;
 			_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
 		}
 	}
-	if(Sensor_3_inhand == STEP_3 && Get_Trak_State() == 1)
+	if(Sensor_3_inhand == STEP_3)
 	{
 		if((result = TurnPlate_2_Move(coord)) == 0)
 		{
@@ -102,7 +107,7 @@ void Turntable_2_Sensor_4(int val)
 	static struct timeval Time_start;
 	static struct timeval Time_now;
 	char result;
-	if(Sensor_4_inhand == 0 && Sensor_3_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1 && GetTurntableRespond() == 1)
+	if(Sensor_4_inhand == 0 && Sensor_3_inhand == 0 && _State_Moudle.State_TurnPlate_2_Module == State_NoBusy && Get_Trak_State() == 1)
 	{
 		if(BIT(val, 3) == 0)//表示传感器4触发过
 		{
@@ -251,6 +256,12 @@ void Turntable_2_Sensor_4(int val)
 		gettimeofday(&Time_now, NULL);
 		if(My_timeout(&Time_start, &Time_now, turntable2Pos -> waitingTime[1]) == 0)
 		{
+			if(Get_Trak_State() == 0)
+			{
+				Sensor_4_inhand = 0;
+				_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
+				return;
+			}
 			turntable_2_release = (turntable_2_release_flag == 1) || (turntable_2_release_flag == 2 && Get_EmptyCar_IntoTark() == 0);
 			if(turntable_2_release == 1)
 			{
@@ -264,7 +275,7 @@ void Turntable_2_Sensor_4(int val)
 			_State_Moudle.State_TurnPlate_2_Module = State_NoBusy;
 		}
 	}
-	if(Sensor_4_inhand == STEP_4 && Get_Trak_State() == 1)
+	if(Sensor_4_inhand == STEP_4)
 	{
 		if((result = TurnPlate_2_Move(coord)) == 0)
 		{
